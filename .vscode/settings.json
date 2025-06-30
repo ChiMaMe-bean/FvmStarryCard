@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "qcombobox": "cpp",
+        "qmainwindow": "cpp",
+        "qapplication": "cpp",
+        "xstring": "cpp",
+        "qpalette": "cpp",
+        "qfiledialog": "cpp"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
+}

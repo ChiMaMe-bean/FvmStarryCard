@@ -1,0 +1,79 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-Debug-3f0cf1421b508fcb349b.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "stellarforge",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "stellarforge::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-stellarforge-Debug-0e100a2643c11a572838.json",
+					"name" : "stellarforge",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "stellarforge_autogen::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-stellarforge_autogen-Debug-a69efcacf4d80f2bf162.json",
+					"name" : "stellarforge_autogen",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "stellarforge_autogen_timestamp_deps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-stellarforge_autogen_timestamp_deps-Debug-3280534fcecd0601f9fa.json",
+					"name" : "stellarforge_autogen_timestamp_deps",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug",
+		"source" : "D:/Project/StellarForge"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 7
+	}
+}
