@@ -652,7 +652,7 @@ void StarryCard::startEnhancement()
         currentEnhancementLevel = 0; // 重置当前强化等级
         enhancementBtn->setText("停止强化");
         enhancementTimer->start(1000);
-        addLog(QString("开始强化流程，最高强化等级设置为: %1级").arg(getMaxEnhancementLevel()), LogType::Success);
+        addLog(QString("开始强化流程，强化范围: %1-%2级").arg(getMinEnhancementLevel()).arg(getMaxEnhancementLevel()), LogType::Success);
     } else {
         stopEnhancement();
     }
@@ -686,6 +686,13 @@ void StarryCard::performEnhancement()
 
     // 检查是否达到最高强化等级
     int maxLevel = getMaxEnhancementLevel();
+    int minLevel = getMinEnhancementLevel();
+    
+    // 如果是第一次强化，从最低等级开始
+    if (currentEnhancementLevel == 0) {
+        currentEnhancementLevel = minLevel - 1; // 设置为比最低等级低1，下面会加1
+    }
+    
     if (currentEnhancementLevel >= maxLevel) {
         stopEnhancement();
         addLog(QString("已达到设置的最高强化等级 %1级，强化自动停止").arg(maxLevel), LogType::Success);
@@ -708,7 +715,7 @@ void StarryCard::performEnhancement()
     }
 
     WindowUtils::clickAtPosition(targetWindow, 284, 427);
-    addLog(QString("执行强化操作：等级 %1 -> %2 (最高等级: %3)").arg(currentEnhancementLevel-1).arg(currentEnhancementLevel).arg(maxLevel), LogType::Info);
+    addLog(QString("执行强化操作：等级 %1 -> %2 (强化范围: %3-%4级)").arg(currentEnhancementLevel-1).arg(currentEnhancementLevel).arg(minLevel).arg(maxLevel), LogType::Info);
 }
 
 void StarryCard::trackMousePosition(QPoint pos) {
@@ -1104,13 +1111,8 @@ void StarryCard::onCaptureAndRecognize()
     if (!requiredCardTypes.isEmpty()) {
         // 使用针对性识别，只识别配置中需要的卡片类型
         results = cardRecognizer->recognizeCardsDetailed(screenshot, requiredCardTypes);
-        addLog(QString("使用针对性识别，目标卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
-    } 
-    // else {
-    //     // 如果配置为空，使用全量识别作为备选
-    //     results = cardRecognizer->recognizeCards(screenshot);
-    //     addLog("配置文件中无有效卡片类型，使用全量识别", LogType::Warning);
-    // }
+        addLog(QString("识别目标卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
+    }
     
     if (results.empty()) {
         addLog("未识别到任何卡片", LogType::Warning);
@@ -1139,11 +1141,11 @@ QWidget* StarryCard::createEnhancementConfigPage()
 {
     QWidget* page = new QWidget();
     page->setStyleSheet("background-color: transparent;");
-    
-          QVBoxLayout* layout = new QVBoxLayout(page);
-      layout->setContentsMargins(0, 0, 0, 0);  // 减少边距以增加表格可用空间
-      layout->setSpacing(0);
-    
+
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 0, 0, 0); // 减少边距以增加表格可用空间
+    layout->setSpacing(0);
+
     // 创建标题
     QLabel* titleLabel = new QLabel("强化方案配置");
     titleLabel->setAlignment(Qt::AlignCenter);
@@ -1340,12 +1342,75 @@ QWidget* StarryCard::createEnhancementConfigPage()
     
     layout->addWidget(enhancementTable);
     
-    // 添加最高强化等级设置
-    QHBoxLayout* maxLevelLayout = new QHBoxLayout();
-    maxLevelLayout->setSpacing(10);
-    maxLevelLayout->setContentsMargins(10, 5, 10, 5);
+    // 添加强化等级设置（最低和最高在同一行）
+    QHBoxLayout* levelSettingsLayout = new QHBoxLayout();
+    levelSettingsLayout->setSpacing(20);
+    levelSettingsLayout->setContentsMargins(10, 5, 10, 5);
     
-    QLabel* maxLevelLabel = new QLabel("最高强化等级:");
+    // 最低强化等级设置
+    QLabel* minLevelLabel = new QLabel("最低强化星级:");
+    minLevelLabel->setStyleSheet(R"(
+        QLabel {
+            color: #003D7A;
+            font-weight: bold;
+            font-size: 14px;
+            background-color: rgba(125, 197, 255, 100);
+            border-radius: 4px;
+            padding: 5px 8px;
+        }
+    )");
+    
+    minEnhancementLevelSpinBox = new QSpinBox();
+    minEnhancementLevelSpinBox->setMinimum(1);
+    minEnhancementLevelSpinBox->setMaximum(14);
+    minEnhancementLevelSpinBox->setValue(1); // 默认为1级
+    minEnhancementLevelSpinBox->setSuffix(" 星");
+    minEnhancementLevelSpinBox->setStyleSheet(R"(
+        QSpinBox {
+            background-color: rgba(255, 255, 255, 220);
+            border: 2px solid rgba(102, 204, 255, 150);
+            border-radius: 6px;
+            padding: 4px 8px;
+            color: #003D7A;
+            font-weight: bold;
+            font-size: 13px;
+            min-width: 80px;
+        }
+        QSpinBox:hover {
+            background-color: rgba(102, 204, 255, 100);
+            border: 2px solid rgba(102, 204, 255, 200);
+        }
+        QSpinBox:focus {
+            background-color: rgba(255, 255, 255, 255);
+            border: 2px solid rgba(33, 150, 243, 200);
+        }
+        QSpinBox::up-button {
+            background-color: rgba(102, 204, 255, 150);
+            border: 1px solid rgba(102, 204, 255, 200);
+            border-radius: 3px;
+            width: 16px;
+            margin-right: 2px;
+        }
+        QSpinBox::up-button:hover {
+            background-color: rgba(102, 204, 255, 200);
+        }
+        QSpinBox::down-button {
+            background-color: rgba(102, 204, 255, 150);
+            border: 1px solid rgba(102, 204, 255, 200);
+            border-radius: 3px;
+            width: 16px;
+            margin-right: 2px;
+        }
+        QSpinBox::down-button:hover {
+            background-color: rgba(102, 204, 255, 200);
+        }
+    )");
+    
+    connect(minEnhancementLevelSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), 
+            this, &StarryCard::onMinEnhancementLevelChanged);
+    
+    // 最高强化等级设置
+    QLabel* maxLevelLabel = new QLabel("最高强化星级:");
     maxLevelLabel->setStyleSheet(R"(
         QLabel {
             color: #003D7A;
@@ -1361,7 +1426,7 @@ QWidget* StarryCard::createEnhancementConfigPage()
     maxEnhancementLevelSpinBox->setMinimum(1);
     maxEnhancementLevelSpinBox->setMaximum(14);
     maxEnhancementLevelSpinBox->setValue(14); // 默认为14级
-    maxEnhancementLevelSpinBox->setSuffix(" 级");
+    maxEnhancementLevelSpinBox->setSuffix(" 星");
     maxEnhancementLevelSpinBox->setStyleSheet(R"(
         QSpinBox {
             background-color: rgba(255, 255, 255, 220);
@@ -1406,21 +1471,21 @@ QWidget* StarryCard::createEnhancementConfigPage()
     connect(maxEnhancementLevelSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), 
             this, &StarryCard::onMaxEnhancementLevelChanged);
     
-    // QLabel* descLabel = new QLabel("(程序执行强化时将只进行1级到所选最高等级的强化)");
-    // descLabel->setStyleSheet(R"(
-    //     QLabel {
-    //         color: #666666;
-    //         font-size: 11px;
-    //         font-style: italic;
-    //     }
-    // )");
+    // 初始化时同步最低等级SpinBox的最大值
+    if (maxEnhancementLevelSpinBox) {
+        minEnhancementLevelSpinBox->setMaximum(maxEnhancementLevelSpinBox->value());
+        maxEnhancementLevelSpinBox->setMinimum(minEnhancementLevelSpinBox->value());
+    }
     
-    maxLevelLayout->addWidget(maxLevelLabel);
-    maxLevelLayout->addWidget(maxEnhancementLevelSpinBox);
-    // maxLevelLayout->addWidget(descLabel);
-    maxLevelLayout->addStretch();
+    // 组装水平布局：最低等级 - 最高等级 - 弹性空间
+    levelSettingsLayout->addWidget(minLevelLabel);
+    levelSettingsLayout->addWidget(minEnhancementLevelSpinBox);
+    levelSettingsLayout->addSpacing(30); // 添加间距分隔两个设置区域
+    levelSettingsLayout->addWidget(maxLevelLabel);
+    levelSettingsLayout->addWidget(maxEnhancementLevelSpinBox);
+    levelSettingsLayout->addStretch(); // 右侧弹性空间
     
-    layout->addLayout(maxLevelLayout);
+    layout->addLayout(levelSettingsLayout);
     
     // 添加一些垂直间距
     layout->addSpacing(5);
@@ -1512,6 +1577,14 @@ int StarryCard::getMaxEnhancementLevel() const
     return 14; // 默认最高等级为14
 }
 
+int StarryCard::getMinEnhancementLevel() const
+{
+    if (minEnhancementLevelSpinBox) {
+        return minEnhancementLevelSpinBox->value();
+    }
+    return 1; // 默认最低等级为1
+}
+
 void StarryCard::onEnhancementConfigChanged()
 {
     // 自动保存配置
@@ -1520,14 +1593,24 @@ void StarryCard::onEnhancementConfigChanged()
 
 void StarryCard::onMaxEnhancementLevelChanged()
 {
-    if (!maxEnhancementLevelSpinBox) return;
+    if (!maxEnhancementLevelSpinBox || !minEnhancementLevelSpinBox) return;
     
     int maxLevel = maxEnhancementLevelSpinBox->value();
+    int minLevel = minEnhancementLevelSpinBox->value();
     
-    // 更新表格显示，禁用超过最高等级的行
+    // 确保最高等级不小于最低等级
+    if (maxLevel < minLevel) {
+        minEnhancementLevelSpinBox->setValue(maxLevel);
+        minLevel = maxLevel;
+    }
+    
+    // 更新最低强化等级SpinBox的最大值
+    minEnhancementLevelSpinBox->setMaximum(maxLevel);
+    
+    // 更新表格显示，禁用低于最低等级和超过最高等级的行
     if (enhancementTable) {
         for (int row = 0; row < 14; ++row) {
-            bool enabled = (row + 1) <= maxLevel;
+            bool enabled = (row + 1) >= minLevel && (row + 1) <= maxLevel;
             
             // 设置行的启用状态
             for (int col = 0; col < enhancementTable->columnCount(); ++col) {
@@ -1559,6 +1642,59 @@ void StarryCard::onMaxEnhancementLevelChanged()
     saveEnhancementConfig();
     
     addLog(QString("最高强化等级已设置为: %1级").arg(maxLevel), LogType::Info);
+}
+
+void StarryCard::onMinEnhancementLevelChanged()
+{
+    if (!minEnhancementLevelSpinBox || !maxEnhancementLevelSpinBox) return;
+    
+    int minLevel = minEnhancementLevelSpinBox->value();
+    int maxLevel = maxEnhancementLevelSpinBox->value();
+    
+    // 确保最低等级不超过最高等级
+    if (minLevel > maxLevel) {
+        maxEnhancementLevelSpinBox->setValue(minLevel);
+        maxLevel = minLevel;
+    }
+    
+    // 更新最高强化等级SpinBox的最小值
+    maxEnhancementLevelSpinBox->setMinimum(minLevel);
+    
+    // 更新表格显示，禁用低于最低等级和超过最高等级的行
+    if (enhancementTable) {
+        for (int row = 0; row < 14; ++row) {
+            bool enabled = (row + 1) >= minLevel && (row + 1) <= maxLevel;
+            
+            // 设置行的启用状态
+            for (int col = 0; col < enhancementTable->columnCount(); ++col) {
+                QWidget* widget = enhancementTable->cellWidget(row, col);
+                if (widget) {
+                    widget->setEnabled(enabled);
+                }
+            }
+            
+            // 设置行的视觉效果
+            for (int col = 0; col < enhancementTable->columnCount(); ++col) {
+                QWidget* widget = enhancementTable->cellWidget(row, col);
+                if (widget) {
+                    if (enabled) {
+                        widget->setStyleSheet(widget->styleSheet().replace("color: #CCCCCC;", "color: #003D7A;"));
+                    } else {
+                        QString currentStyle = widget->styleSheet();
+                        if (!currentStyle.contains("color: #CCCCCC;")) {
+                            currentStyle = currentStyle.replace("color: #003D7A;", "color: #CCCCCC;");
+                            widget->setStyleSheet(currentStyle);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 保存配置
+    saveEnhancementConfig();
+    
+    addLog(QString("最低强化等级已设置为: %1级").arg(minLevel), LogType::Info);
 }
 
 void StarryCard::saveEnhancementConfig()
@@ -1646,6 +1782,11 @@ void StarryCard::saveEnhancementConfig()
     // 保存最高强化等级设置
     if (maxEnhancementLevelSpinBox) {
         config["max_enhancement_level"] = maxEnhancementLevelSpinBox->value();
+    }
+    
+    // 保存最低强化等级设置
+    if (minEnhancementLevelSpinBox) {
+        config["min_enhancement_level"] = minEnhancementLevelSpinBox->value();
     }
     
     // 保存到文件
@@ -1753,9 +1894,20 @@ void StarryCard::loadEnhancementConfig()
         int maxLevel = config["max_enhancement_level"].toInt();
         if (maxLevel >= 1 && maxLevel <= 14) {
             maxEnhancementLevelSpinBox->setValue(maxLevel);
-            // 触发槽函数以更新表格显示状态
-            onMaxEnhancementLevelChanged();
         }
+    }
+    
+    // 加载最低强化等级设置
+    if (minEnhancementLevelSpinBox && config.contains("min_enhancement_level")) {
+        int minLevel = config["min_enhancement_level"].toInt();
+        if (minLevel >= 1 && minLevel <= 14) {
+            minEnhancementLevelSpinBox->setValue(minLevel);
+        }
+    }
+    
+    // 触发槽函数以更新表格显示状态
+    if (maxEnhancementLevelSpinBox) {
+        onMaxEnhancementLevelChanged();
     }
     
     addLog("强化方案配置已加载", LogType::Success);
@@ -1881,9 +2033,20 @@ void StarryCard::loadEnhancementConfigFromFile()
         int maxLevel = config["max_enhancement_level"].toInt();
         if (maxLevel >= 1 && maxLevel <= 14) {
             maxEnhancementLevelSpinBox->setValue(maxLevel);
-            // 触发槽函数以更新表格显示状态
-            onMaxEnhancementLevelChanged();
         }
+    }
+    
+    // 加载最低强化等级设置
+    if (minEnhancementLevelSpinBox && config.contains("min_enhancement_level")) {
+        int minLevel = config["min_enhancement_level"].toInt();
+        if (minLevel >= 1 && minLevel <= 14) {
+            minEnhancementLevelSpinBox->setValue(minLevel);
+        }
+    }
+    
+    // 触发槽函数以更新表格显示状态
+    if (maxEnhancementLevelSpinBox) {
+        onMaxEnhancementLevelChanged();
     }
     
     addLog("从文件加载配置成功: " + QFileInfo(fileName).fileName(), LogType::Success);
@@ -1945,9 +2108,10 @@ QStringList StarryCard::getRequiredCardTypesFromConfig()
     }
     
     QJsonObject config = doc.object();
+    int maxLevel = config["max_enhancement_level"].toInt();
     
     // 遍历所有等级的配置
-    for (int row = 0; row < 14; ++row) {
+    for (int row = 0; row < maxLevel; ++row) {
         QString levelKey = QString("%1-%2").arg(row).arg(row + 1);
         if (!config.contains(levelKey)) continue;
         

@@ -882,7 +882,7 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
         targetCards.push_back(cardType.toStdString());
     }
     
-    qDebug() << "开始针对性详细识别，目标卡片类型:" << targetCardTypes.size() << "种";
+    qDebug() << "识别目标卡片类型:" << targetCardTypes.size() << "种";
 
     try {
         // 提取卡片区域
