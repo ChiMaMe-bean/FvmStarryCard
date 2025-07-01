@@ -1,16 +1,18 @@
-# ninja log v5
-3	334	0	D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/cmake.verify_globs	4d04291fffc5d868
-340	2210	7730068451270594	stellarforge_autogen/timestamp	f092b031c8c98d5f
-340	2210	7730068451270594	stellarforge_autogen/mocs_compilation.cpp	f092b031c8c98d5f
-340	2210	7730068451270594	D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/stellarforge_autogen/timestamp	f092b031c8c98d5f
-340	2210	7730068451270594	D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/stellarforge_autogen/mocs_compilation.cpp	f092b031c8c98d5f
-2218	3081	7730068462915258	stellarforge_autogen/EWIEGA46WW/qrc_resources.cpp	5f09e1edb79660f2
-2218	3081	7730068462915258	D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/stellarforge_autogen/EWIEGA46WW/qrc_resources.cpp	5f09e1edb79660f2
-3886	8059	7730068512660962	CMakeFiles/stellarforge.dir/custombutton.cpp.obj	d13768665941b35a
-4157	8510	7730068517162979	CMakeFiles/stellarforge.dir/utils.cpp.obj	d7b66637a7db717f
-4420	11156	7730068543596551	CMakeFiles/stellarforge.dir/cardrecognizer.cpp.obj	f6c2275211696325
-3356	12445	7730068556519433	CMakeFiles/stellarforge.dir/main.cpp.obj	f5a80c2a4561ede7
-3081	12600	7730068558042985	CMakeFiles/stellarforge.dir/stellarforge_autogen/mocs_compilation.cpp.obj	3a077f771be933e8
-3613	13224	7730068564300834	CMakeFiles/stellarforge.dir/stellarforge.cpp.obj	5c143cc70be34696
-4681	14107	7730068572810890	CMakeFiles/stellarforge.dir/stellarforge_autogen/EWIEGA46WW/qrc_resources.cpp.obj	a9822a502bf919a
-14108	16354	7730068595331333	stellarforge.exe	4834381645f98989
+# ninja log v6
+11	135	7730792492989050	C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/cmake.verify_globs	ca18c7c1da4b280d
+1237	1710	7730789856184954	C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/starrycard_autogen/EWIEGA46WW/qrc_resources.cpp	fda6b5f19f515e9f
+142	1233	7730789850669822	starrycard_autogen/timestamp	6bd04952973cd937
+1921	3416	7730789858367306	CMakeFiles/starrycard.dir/utils.cpp.obj	bfe216023a8f3d9c
+1872	3235	7730789857884625	CMakeFiles/starrycard.dir/custombutton.cpp.obj	fa7e229883b30e23
+142	1233	7730789850669822	starrycard_autogen/mocs_compilation.cpp	6bd04952973cd937
+142	1233	7730789850669822	C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/starrycard_autogen/timestamp	6bd04952973cd937
+142	1233	7730789850669822	C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/starrycard_autogen/mocs_compilation.cpp	6bd04952973cd937
+1237	1710	7730789856184954	starrycard_autogen/EWIEGA46WW/qrc_resources.cpp	fda6b5f19f515e9f
+1976	4482	7730789858926744	CMakeFiles/starrycard.dir/cardrecognizer.cpp.obj	a095c12c16852379
+1767	5027	7730789856835690	CMakeFiles/starrycard.dir/main.cpp.obj	ee0ac7c06c402d28
+1710	5125	7730789856268397	CMakeFiles/starrycard.dir/starrycard_autogen/mocs_compilation.cpp.obj	4b17ef053b2619f4
+1816	5462	7730789857327704	CMakeFiles/starrycard.dir/starrycard.cpp.obj	e00a0bbee6a16456
+2031	5947	7730789859465187	CMakeFiles/starrycard.dir/starrycard_autogen/EWIEGA46WW/qrc_resources.cpp.obj	d69f120a92279735
+5948	6776	7730789898637236	starrycard.exe	427b1ccc370ce570
+135	1019	7730792501541318	build.ninja	88b385b4a04e676d
+10	148	7730792502492274	C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/cmake.verify_globs	ca18c7c1da4b280d

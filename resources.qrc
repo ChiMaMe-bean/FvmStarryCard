@@ -7,6 +7,8 @@
         <file>items/background/default.png</file>
         <file>items/icons/downArrow.svg</file>
         <file>items/position/line.png</file>
+        <file>items/position/PageUp.png</file>
+        <file>items/position/PageDown.png</file>
         <file>items/bind_state/card_bind.png</file>
         <file>items/bind_state/clover_bound.png</file>
         <file>items/clover/1级.png</file>

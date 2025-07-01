@@ -1,8 +1,8 @@
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/stellarforge.dir
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/edit_cache.dir
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/rebuild_cache.dir
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/list_install_components.dir
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/install.dir
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/install/local.dir
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/stellarforge_autogen_timestamp_deps.dir
-D:/Project/StellarForge/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/stellarforge_autogen.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/starrycard.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/edit_cache.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/rebuild_cache.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/list_install_components.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/install.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/install/local.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/starrycard_autogen_timestamp_deps.dir
+C:/Users/laiwa/wanqin/project/FvmStarryCard/FvmStarryCard/build/Desktop_Qt_6_8_2_MSVC2022_64bit-Debug/CMakeFiles/starrycard_autogen.dir
