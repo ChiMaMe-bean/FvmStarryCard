@@ -125,6 +125,7 @@ private slots:
     void onApplyMainCardToAll(int row, const QString& cardType, bool bind, bool unbound);
     void onApplySubCardToAll(int row, const QString& cardType, bool bind, bool unbound);
     void onMaxEnhancementLevelChanged();
+    void onMinEnhancementLevelChanged();
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -143,6 +144,7 @@ private:
     int getMinSubCardLevel(int enhancementLevel);
     int getMaxSubCardLevel(int enhancementLevel);
     int getMaxEnhancementLevel() const;
+    int getMinEnhancementLevel() const;
     QStringList getCardTypes() const;
     QStringList getRequiredCardTypesFromConfig();
     void saveCardSettingForRow(int row, const QString& mainCardType, const QString& subCardType,
@@ -181,6 +183,7 @@ private:
     QTextEdit *logTextEdit = nullptr;
     QTableWidget *enhancementTable = nullptr;
     QSpinBox *maxEnhancementLevelSpinBox = nullptr;
+    QSpinBox *minEnhancementLevelSpinBox = nullptr;
     
     bool isTracking = false;
     bool isEnhancing = false;
