@@ -1,0 +1,6 @@
+<?xml version="1.0" ?>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>items/background/default.png</file>
+    </qresource>
+</RCC>

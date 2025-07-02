@@ -169,6 +169,10 @@ private:
     bool isPageAtTop();
     bool isPageAtBottom();
 
+    // 配方识别相关方法
+    bool loadRecipeTemplates();
+    QPair<bool, bool> recognizeRecipe(const QString& recipeType);
+
     QStackedWidget *centerStack = nullptr;
     QButtonGroup *buttonGroup = nullptr;
     QComboBox *themeCombo = nullptr;
@@ -211,5 +215,11 @@ private:
     QVector<double> pageUpHistogram;    // 翻页到顶部颜色直方图
     QVector<double> pageDownHistogram;  // 翻页到底部颜色直方图
     bool pageTemplatesLoaded = false;
+
+    // 配方识别相关数据
+    QHash<QString, QString> recipeTemplateHashes; // 配方类型名 -> 哈希值
+    QHash<QString, QImage> recipeTemplateImages; // 配方类型名 -> 模板图像
+    QHash<QString, QVector<double>> recipeTemplateHistograms; // 配方类型名 -> 颜色直方图
+    bool recipeTemplatesLoaded = false;
 };
 #endif // STARRYCARD_H

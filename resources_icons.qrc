@@ -1,10 +1,9 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE RCC>
+<?xml version="1.0" ?>
 <RCC version="1.0">
     <qresource prefix="/">
+        <file>items/icons/downArrow.svg</file>
         <file>items/icons/icon128.ico</file>
         <file>items/icons/icon256.ico</file>
         <file>items/icons/icon512.ico</file>
-        <file>items/icons/downArrow.svg</file>
     </qresource>
-</RCC> 
+</RCC>

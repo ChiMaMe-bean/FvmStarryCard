@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE RCC>
+<?xml version="1.0" ?>
 <RCC version="1.0">
     <qresource prefix="/">
         <file>items/card/三线酒架.png</file>
@@ -18,4 +17,4 @@
         <file>items/card/香辣年糕蟹.png</file>
         <file>items/card/鱼刺.png</file>
     </qresource>
-</RCC> 
+</RCC>

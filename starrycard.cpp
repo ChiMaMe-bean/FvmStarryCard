@@ -34,6 +34,7 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QScrollBar>
+#include <opencv2/opencv.hpp>
 
 // 定义全局变量，用于存储 DPI 信息
 int DPI = 96;  // 默认 DPI 值为 96，即 100% 缩  放
@@ -1122,19 +1123,28 @@ void StarryCard::onCaptureAndRecognize()
     
     // showRecognitionResults(results);
     
-    // 测试四叶草识别功能
-    addLog("开始测试四叶草识别功能...", LogType::Info);
-    qDebug() << "=== 开始四叶草识别测试 ===";
+    // // 测试四叶草识别功能
+    // addLog("开始测试四叶草识别功能...", LogType::Info);
+    // qDebug() << "=== 开始四叶草识别测试 ===";
     
-    // 测试识别1级四叶草（任意绑定状态）
-    QPair<bool, bool> result = recognizeClover("1级", false, true);
-    if (result.first) {
-        addLog(QString("四叶草识别测试成功！绑定状态: %1").arg(result.second ? "绑定" : "未绑定"), LogType::Success);
+    // // 测试识别1级四叶草（任意绑定状态）
+    // QPair<bool, bool> result = recognizeClover("1级", false, true);
+    // if (result.first) {
+    //     addLog(QString("四叶草识别测试成功！绑定状态: %1").arg(result.second ? "绑定" : "未绑定"), LogType::Success);
+    // } else {
+    //     addLog("四叶草识别测试失败", LogType::Warning);
+    // }
+    // qDebug() << "=== 四叶草识别测试结束 ===";
+
+
+    // 配方识别流程
+    loadRecipeTemplates();
+    QPair<bool, bool> recipeResult = recognizeRecipe("4");
+    if (recipeResult.first) {
+        addLog("截图配方识别成功！", LogType::Success);
     } else {
-        addLog("四叶草识别测试失败", LogType::Warning);
+        addLog("截图配方识别失败", LogType::Warning);
     }
-    
-    qDebug() << "=== 四叶草识别测试结束 ===";
 }
 
 QWidget* StarryCard::createEnhancementConfigPage()
@@ -3199,6 +3209,155 @@ bool StarryCard::recognizeSingleClover(const QImage& cloverImage, const QString&
     }
     
     return false;
+}
+
+// ================== 配方识别功能实现 ==================
+
+bool StarryCard::loadRecipeTemplates()
+{
+    recipeTemplateHashes.clear();
+    recipeTemplateImages.clear();
+    recipeTemplateHistograms.clear();
+
+    // 使用 Qt 资源路径遍历
+    QDir dir(":/items/recipe");
+    QStringList nameFilters;
+    nameFilters << "*.png";
+    QStringList fileList = dir.entryList(nameFilters, QDir::Files | QDir::NoSymLinks);
+
+    for (const QString& fileName : fileList) {
+        QString recipeName = QFileInfo(fileName).baseName();
+        QString resourcePath = QString(":/items/recipe/%1").arg(fileName);
+        QImage template_image(resourcePath);
+        if (template_image.isNull()) {
+            qDebug() << "无法加载配方模板:" << recipeName << "路径:" << resourcePath;
+            continue;
+        }
+        // 配方种类识别ROI: (4,4) 宽38 高24
+        QRect roi(4, 4, 38, 24);
+        recipeTemplateImages[recipeName] = template_image;
+        QVector<double> histogram = calculateColorHistogram(template_image, roi);
+        recipeTemplateHistograms[recipeName] = histogram;
+        QString hash = calculateImageHash(template_image, roi);
+        recipeTemplateHashes[recipeName] = hash;
+        qDebug() << "成功加载配方模板:" << recipeName << "颜色直方图特征数:" << histogram.size();
+        // 保存模板和ROI用于调试
+        QString debugDir = QCoreApplication::applicationDirPath() + "/debug_recipe";
+        QDir().mkpath(debugDir);
+        QString templatePath = QString("%1/template_%2.png").arg(debugDir).arg(recipeName);
+        template_image.save(templatePath);
+        QImage templateROI = template_image.copy(roi);
+        QString templateROIPath = QString("%1/template_roi_%2.png").arg(debugDir).arg(recipeName);
+        templateROI.save(templateROIPath);
+    }
+    recipeTemplatesLoaded = !recipeTemplateHistograms.isEmpty();
+    if (recipeTemplatesLoaded) {
+        qDebug() << "配方模板加载完成，总数:" << recipeTemplateHistograms.size();
+    } else {
+        qDebug() << "配方模板加载失败，没有成功加载任何模板";
+    }
+    return recipeTemplatesLoaded;
+}
+
+QPair<bool, bool> StarryCard::recognizeRecipe(const QString& recipeType)
+{
+    if (!recipeTemplatesLoaded) {
+        addLog("配方模板未加载，无法进行识别", LogType::Error);
+        return qMakePair(false, false);
+    }
+    if (!targetWindow || !IsWindow(targetWindow)) {
+        addLog("游戏窗口无效，无法进行配方识别", LogType::Error);
+        return qMakePair(false, false);
+    }
+    addLog(QString("开始识别配方: %1").arg(recipeType), LogType::Info);
+    // 截取配方区域 (555,88)-(920,288)
+    QImage screenshot = captureGameWindow();
+    if (screenshot.isNull()) {
+        addLog("截图失败，无法进行配方识别", LogType::Error);
+        return qMakePair(false, false);
+    }
+    QRect recipeArea(555, 88, 365, 200);
+    QImage recipeRegion = screenshot.copy(recipeArea);
+    if (recipeRegion.isNull()) {
+        addLog("配方区域截图无效", LogType::Error);
+        return qMakePair(false, false);
+    }
+    // 保存当前配方区域截图，带时间戳
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+    QString debugDir = QCoreApplication::applicationDirPath() + "/debug_recipe";
+    QDir().mkpath(debugDir);
+    QString regionPath = QString("%1/recipeRegion_%2.png").arg(debugDir).arg(timestamp);
+    recipeRegion.save(regionPath);
+    qDebug() << "已保存配方区域截图:" << regionPath;
+
+    int regionW = recipeRegion.width();
+    int regionH = recipeRegion.height();
+    // int tplW = 49, tplH = 49;
+    // double maxSimilarity = 0.0;
+    // double secondMaxSimilarity = 0.0;
+    // int bestX = -1, bestY = -1;
+    // int secondX = -1, secondY = -1;
+    // QRect roi(4, 4, 38, 24);
+    if (!recipeTemplateImages.contains(recipeType)) {
+        addLog("未找到指定配方模板", LogType::Error);
+        return qMakePair(false, false);
+    }
+    QImage templateImage = recipeTemplateImages[recipeType];
+    
+    // 使用 OpenCV 的 matchTemplate 优化滑动窗口查找最大相似度
+    QImage regionRgb = recipeRegion.convertToFormat(QImage::Format_RGB32);
+    QImage templateRgb = templateImage.convertToFormat(QImage::Format_RGB32);
+    QRect roi(4, 4, 38, 24);
+    QImage templateROI = templateRgb.copy(roi);
+    cv::Mat regionMat(regionRgb.height(), regionRgb.width(), CV_8UC4, (void*)regionRgb.constBits(), regionRgb.bytesPerLine());
+    cv::Mat tplRoiMat(templateROI.height(), templateROI.width(), CV_8UC4, (void*)templateROI.constBits(), templateROI.bytesPerLine());
+    cv::Mat result;
+    cv::matchTemplate(regionMat, tplRoiMat, result, cv::TM_CCOEFF_NORMED);
+    double minVal, maxVal;
+    cv::Point minLoc, maxLoc;
+    cv::minMaxLoc(result, &minVal, &maxVal, &minLoc, &maxLoc);
+    // 还原到配方左上角坐标
+    int tplW = 49, tplH = 49;
+    int bestX = maxLoc.x - 4;
+    int bestY = maxLoc.y - 4;
+    double maxSimilarity = maxVal;
+    // 查找第二大相似度
+    double secondMaxSimilarity = 0.0;
+    int secondX = -1, secondY = -1;
+    cv::Mat resultCopy = result.clone();
+    resultCopy.at<float>(maxLoc.y, maxLoc.x) = -1.0f;
+    double secondMaxVal;
+    cv::Point secondMaxLoc;
+    cv::minMaxLoc(resultCopy, nullptr, &secondMaxVal, nullptr, &secondMaxLoc);
+    secondMaxSimilarity = secondMaxVal;
+    secondX = secondMaxLoc.x - 4;
+    secondY = secondMaxLoc.y - 4;
+
+    qDebug() << "配方识别最大相似度:" << maxSimilarity << " 位置:(" << bestX << "," << bestY << ")";
+    qDebug() << "配方识别第二大相似度:" << secondMaxSimilarity << " 位置:(" << secondX << "," << secondY << ")";
+    // 保存最大和第二大相似度的截图
+    if (bestX >= 0 && bestY >= 0) {
+        QImage bestCandidate = recipeRegion.copy(QRect(bestX, bestY, tplW, tplH));
+        QString bestPath = QString("%1/best_%2_%.4f_(%3_%4).png").arg(debugDir).arg(timestamp).arg(maxSimilarity).arg(bestX).arg(bestY);
+        bestCandidate.save(bestPath);
+        qDebug() << "已保存最大相似度截图:" << bestPath;
+    }
+    if (secondX >= 0 && secondY >= 0) {
+        QImage secondCandidate = recipeRegion.copy(QRect(secondX, secondY, tplW, tplH));
+        QString secondPath = QString("%1/second_%2_%.4f_(%3_%4).png").arg(debugDir).arg(timestamp).arg(secondMaxSimilarity).arg(secondX).arg(secondY);
+        secondCandidate.save(secondPath);
+        qDebug() << "已保存第二大相似度截图:" << secondPath;
+    }
+    double similarityThreshold = 0.999; // 99.9%阈值，防止角落误识别
+    if (maxSimilarity >= similarityThreshold && bestX >= 0 && bestY >= 0) {
+        int click_x = 555 + bestX + tplW / 2;
+        int click_y = 88 + bestY + tplH / 2;
+        WindowUtils::clickAtPosition(targetWindow, click_x, click_y);
+        addLog(QString("点击配方中心位置: (%1, %2)").arg(click_x).arg(click_y), LogType::Success);
+        return qMakePair(true, true);
+    }
+    addLog(QString("配方识别失败: %1").arg(recipeType), LogType::Error);
+    return qMakePair(false, false);
 }
 
 #include "starrycard.moc"

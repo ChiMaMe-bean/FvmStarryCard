@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE RCC>
+<?xml version="1.0" ?>
 <RCC version="1.0">
     <qresource prefix="/">
         <file>items/clover/1级.png</file>
@@ -14,4 +13,4 @@
         <file>items/clover/SSS.png</file>
         <file>items/clover/蛇草.png</file>
     </qresource>
-</RCC> 
+</RCC>
