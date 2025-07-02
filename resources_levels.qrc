@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>items/level/1.png</file>
+        <file>items/level/2.png</file>
+        <file>items/level/3.png</file>
+        <file>items/level/4.png</file>
+        <file>items/level/5.png</file>
+        <file>items/level/6.png</file>
+        <file>items/level/7.png</file>
+        <file>items/level/8.png</file>
+        <file>items/level/9.png</file>
+        <file>items/level/10.png</file>
+        <file>items/level/11.png</file>
+        <file>items/level/12.png</file>
+        <file>items/level/13.png</file>
+        <file>items/level/14.png</file>
+        <file>items/level/15.png</file>
+        <file>items/level/16.png</file>
+    </qresource>
+</RCC> 

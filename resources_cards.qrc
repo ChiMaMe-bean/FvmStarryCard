@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>items/card/三线酒架.png</file>
+        <file>items/card/双层小笼包.png</file>
+        <file>items/card/巧克力面包.png</file>
+        <file>items/card/微波炉爆弹.png</file>
+        <file>items/card/换气扇.png</file>
+        <file>items/card/热狗大炮.png</file>
+        <file>items/card/煮蛋器投手.png</file>
+        <file>items/card/瓜皮护罩.png</file>
+        <file>items/card/糖渍刺梨.png</file>
+        <file>items/card/老鼠夹子.png</file>
+        <file>items/card/酒瓶炸弹.png</file>
+        <file>items/card/面粉袋.png</file>
+        <file>items/card/香肠.png</file>
+        <file>items/card/香辣年糕蟹.png</file>
+        <file>items/card/鱼刺.png</file>
+    </qresource>
+</RCC> 

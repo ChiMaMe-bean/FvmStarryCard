@@ -29,7 +29,11 @@ set(PROJECT_SOURCES
         starrycard.h
         starrycard.ui
         ${TS_FILES}
-        resources.qrc
+        resources_icons.qrc
+        resources_cards.qrc
+        resources_ui.qrc
+        resources_levels.qrc
+        resources_clover.qrc
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>items/clover/1级.png</file>
+        <file>items/clover/2级.png</file>
+        <file>items/clover/3级.png</file>
+        <file>items/clover/4级.png</file>
+        <file>items/clover/5级.png</file>
+        <file>items/clover/6级.png</file>
+        <file>items/clover/S.png</file>
+        <file>items/clover/SS.png</file>
+        <file>items/clover/SSR.png</file>
+        <file>items/clover/SSS.png</file>
+        <file>items/clover/蛇草.png</file>
+    </qresource>
+</RCC> 
