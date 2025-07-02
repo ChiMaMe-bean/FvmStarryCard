@@ -9,9 +9,11 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 设置OpenCV路径
-set(OpenCV_DIR "C:/tools/openCv/opencv/build")
-set(OpenCV_INCLUDE_DIRS "C:/tools/openCv/opencv/build/include")
+# ==== 设置OpenCV路径，OpenCV路径配置为本地local.cmake ====
+if(EXISTS "${CMAKE_SOURCE_DIR}/local.cmake")
+    include(${CMAKE_SOURCE_DIR}/local.cmake)
+endif()
+# ==== OpenCV路径请在local.cmake中配置 ====
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets LinguistTools)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets LinguistTools)
