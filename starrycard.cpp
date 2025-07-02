@@ -2109,9 +2109,10 @@ QStringList StarryCard::getRequiredCardTypesFromConfig()
     
     QJsonObject config = doc.object();
     int maxLevel = config["max_enhancement_level"].toInt();
+    int minLevel = config["min_enhancement_level"].toInt();
     
     // 遍历所有等级的配置
-    for (int row = 0; row < maxLevel; ++row) {
+    for (int row = minLevel; row <= maxLevel; ++row) {
         QString levelKey = QString("%1-%2").arg(row).arg(row + 1);
         if (!config.contains(levelKey)) continue;
         
