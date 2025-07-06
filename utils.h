@@ -47,7 +47,6 @@ public:
     static int getDPI();
     static HWND getWindowFromPoint(const QPoint& point);
     static bool isGameWindow(HWND hwnd);
-    static void clickAtPosition(HWND hwnd, int x, int y);
     static QString getWindowTitle(HWND hwnd);
     static QString getParentWindowTitle(HWND hwnd);
     static HWND getParentWindow(HWND hwnd);

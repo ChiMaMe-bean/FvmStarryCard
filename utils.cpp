@@ -65,26 +65,3 @@ QString WindowUtils::getWindowTitle(HWND hwnd)
     GetWindowText(hwnd, title, 256);
     return QString::fromWCharArray(title);
 }
-
-void WindowUtils::clickAtPosition(HWND hwnd, int x, int y)
-{
-    if (!hwnd || !IsWindow(hwnd))
-        return;
-
-    // 获取窗口客户区相对于屏幕的位置
-    RECT windowRect;
-    GetWindowRect(hwnd, &windowRect);
-    
-    // 计算实际点击位置（考虑DPI缩放）
-    double scaleFactor = getDPIScaleFactor();
-    int scaledX = static_cast<int>(x * scaleFactor);
-    int scaledY = static_cast<int>(y * scaleFactor);
-
-    // 将屏幕坐标转换为客户区坐标
-    POINT pt = { windowRect.left + scaledX, windowRect.top + scaledY };
-    ScreenToClient(hwnd, &pt);
-
-    // 发送鼠标消息
-    PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(pt.x, pt.y));
-    PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(pt.x, pt.y));
-} 

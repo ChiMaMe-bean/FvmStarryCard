@@ -39,6 +39,7 @@
 #include "custombutton.h"
 #include "utils.h"
 #include "cardrecognizer.h"
+#include <windows.h>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class StarryCard; }
@@ -128,6 +129,9 @@ private slots:
     void onApplySubCardToAll(int row, const QString& cardType, bool bind, bool unbound);
     void onMaxEnhancementLevelChanged();
     void onMinEnhancementLevelChanged();
+    HWND GetHallWindow(HWND hWnd);
+    bool IsGameWindowVisible(HWND hWnd);
+    void ClickRefresh();
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -179,6 +183,9 @@ private:
     void recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe);
     void recognizeRecipeWithPaging(const QImage& screenshot, const QString& targetRecipe);
     QStringList getAvailableRecipeTypes() const; // 获取所有可用的配方类型
+    
+    // 鼠标点击相关方法
+    BOOL leftClickDPI(HWND hwnd, int x, int y);
 
     // 配方模板数据
     QHash<QString, QVector<double>> recipeTemplateHistograms;
@@ -189,6 +196,7 @@ private:
     QButtonGroup *buttonGroup = nullptr;
     QComboBox *themeCombo = nullptr;
     QComboBox *recipeCombo = nullptr;
+    QComboBox *debugCombo = nullptr;
     QPushButton *selectCustomBgBtn = nullptr;
     CustomButton *trackMouseBtn = nullptr;
     QLineEdit *handleDisplayEdit = nullptr;
@@ -205,7 +213,8 @@ private:
     bool isTracking = false;
     bool isEnhancing = false;
     int currentEnhancementLevel = 0; // 当前强化等级 (0表示未开始)
-    HWND targetWindow = nullptr;
+    HWND targetWindow = nullptr; // 游戏窗口
+    HWND hallWindow = nullptr;   // 大厅窗口
 
     QString defaultBgPath = ":/items/background/default.png";
     QString customBgPath = "";

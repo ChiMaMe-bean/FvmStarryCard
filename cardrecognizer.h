@@ -52,9 +52,7 @@ class CardRecognizer : public QObject
 public:
     explicit CardRecognizer(QObject *parent = nullptr);
     bool loadTemplates();
-    std::vector<std::string> recognizeCards(const QImage& screenshot);
     std::vector<std::string> recognizeCards(const QImage& screenshot, const QStringList& targetCardTypes);
-    std::vector<CardInfo> recognizeCardsDetailed(const QImage& screenshot);
     std::vector<CardInfo> recognizeCardsDetailed(const QImage& screenshot, const QStringList& targetCardTypes);
     std::vector<std::string> getRegisteredCards() const;
     
@@ -90,7 +88,8 @@ private:
     
     const int CARD_WIDTH = 49;
     const int CARD_HEIGHT = 57;
-    const cv::Rect CARD_AREA{555, 88, 365, 200};
+    const cv::Rect RECIPE_AREA{555, 88, 365, 200};
+    const cv::Rect CARD_AREA{559, 91, 343, 456};
     const double MATCH_THRESHOLD = 0.28;
     const int MAX_SEPARATOR_SEARCH_HEIGHT = 70;
 

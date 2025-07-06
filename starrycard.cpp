@@ -440,6 +440,46 @@ void StarryCard::setupUI()
     connect(captureBtn, &QPushButton::clicked, this, &StarryCard::onCaptureAndRecognize);
     rightLayout->addWidget(captureBtn);
 
+    // 添加调试选择下拉框
+    QLabel *debugLabel = new QLabel("调试功能：");
+    debugLabel->setStyleSheet(R"(
+        QLabel {
+            color: #003D7A;
+            font-weight: bold;
+            font-size: 12px;
+        }
+    )");
+    rightLayout->addWidget(debugLabel);
+    
+    debugCombo = new QComboBox();
+    debugCombo->addItems({"配方识别", "卡片识别", "四叶草识别", "刷新测试", "全部功能"});
+    debugCombo->setCurrentText("配方识别"); // 设置默认选择
+    debugCombo->setStyleSheet(R"(
+        QComboBox {
+            background-color: rgba(255, 255, 255, 220);
+            border: 2px solid rgba(102, 204, 255, 150);
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: #003D7A;
+            font-size: 11px;
+        }
+        QComboBox:hover {
+            background-color: rgba(102, 204, 255, 100);
+        }
+        QComboBox::drop-down {
+            border: none;
+            background-color: rgba(102, 204, 255, 150);
+            border-radius: 3px;
+        }
+        QComboBox::down-arrow {
+            image: url(:/items/icons/downArrow.svg);
+            width: 12px;
+            height: 12px;
+            margin-right: 1px;
+        }
+    )");
+    rightLayout->addWidget(debugCombo);
+
     // 添加主题选择标签和当前背景名称
     QHBoxLayout* themeLayout = new QHBoxLayout();
     QLabel *themeLabel = new QLabel("配置主题：");
@@ -621,6 +661,46 @@ void StarryCard::startMouseTracking() {
     addLog("开始获取窗口句柄...", LogType::Info);
 }
 
+// 找到游戏窗口或选服窗口hWnd所属的大厅窗口
+HWND StarryCard::GetHallWindow(HWND hWnd)
+{
+    HWND hWndParent = GetParent(hWnd); // 获得父窗口
+    if (hWndParent == NULL)
+        return NULL; // 没有父窗口，返回NULL
+    wchar_t className[256];
+    GetClassNameW(hWndParent, className, 256);                    // 获取窗口类名
+    if (wcscmp(className, L"ApolloRuntimeContentWindow") == 0) // 如果是微端窗口，直接返回
+        return hWndParent;
+    if (wcscmp(className, L"WrapperNativeWindowClass") == 0) // 如果是大厅游戏窗口的上级窗口，向上找四层
+    {
+        hWndParent = GetParent(hWndParent); // 找到Chrome_WidgetWin_0层
+        hWndParent = GetParent(hWndParent); // 找到CefBrowserWindow层
+        hWndParent = GetParent(hWndParent); // 找到TabContentWnd层
+        return GetParent(hWndParent);       // 找到DUIWindow层（大厅）并返回
+    }
+    if (wcscmp(className, L"Chrome_WidgetWin_0") == 0) // 如果是大厅选服窗口的上级窗口，向上找三层
+    {
+        hWndParent = GetParent(hWndParent); // 找到CefBrowserWindow层
+        hWndParent = GetParent(hWndParent); // 找到TabContentWnd层
+        return GetParent(hWndParent);       // 找到DUIWindow层（大厅）并返回
+    }
+    return NULL;
+}
+
+// 判断游戏窗口hWnd是否能识别图像
+bool StarryCard::IsGameWindowVisible(HWND hWnd)
+{
+  return IsWindowVisible(hWnd) && !IsIconic(GetHallWindow(hWnd));//窗口可见且大厅没有最小化
+}
+
+//点击刷新按钮并记录
+void StarryCard::ClickRefresh()
+{
+    int RefreshX = 228, RefreshY = 44;
+    leftClickDPI(hallWindow, RefreshX, RefreshY); // 重新点击刷新按钮
+    addLog(QString("点击刷新按钮:(%1,%2)").arg(RefreshX).arg(RefreshY), LogType::Info);
+}
+
 void StarryCard::stopMouseTracking() {
     isTracking = false;
     setCursor(Qt::ArrowCursor);
@@ -664,7 +744,8 @@ void StarryCard::stopMouseTracking() {
     }
 
     // 成功获取目标窗口
-    targetWindow = hwnd;
+    targetWindow = hwnd;              // 游戏窗口
+    hallWindow = GetHallWindow(hwnd); // 大厅窗口
     updateHandleDisplay(hwnd);
     
     // 启用截图识别按钮
@@ -760,7 +841,7 @@ void StarryCard::performEnhancement()
         // }
     }
 
-    WindowUtils::clickAtPosition(targetWindow, 284, 427);
+    leftClickDPI(targetWindow, 284, 427);
     addLog(QString("执行强化操作：等级 %1 -> %2 (强化范围: %3-%4级)").arg(currentEnhancementLevel-1).arg(currentEnhancementLevel).arg(minLevel).arg(maxLevel), LogType::Info);
 }
 
@@ -772,7 +853,7 @@ void StarryCard::trackMousePosition(QPoint pos) {
 
 void StarryCard::mouseMoveEvent(QMouseEvent *event) {
     if (isTracking) {
-        trackMousePosition(event->globalPos());
+        trackMousePosition(event->globalPosition().toPoint());
     }
     QMainWindow::mouseMoveEvent(event);
 }
@@ -896,8 +977,8 @@ void StarryCard::updateHandleDisplay(HWND hwnd) {
     }
 
     if (hwnd) {
-        QString title = WindowUtils::getParentWindowTitle(hwnd);
-        handleDisplayEdit->setText(QString::number(reinterpret_cast<quintptr>(hwnd), 10));
+        QString title = WindowUtils::getWindowTitle(hallWindow); // 获取大厅窗口标题
+        handleDisplayEdit->setText(QString::number(reinterpret_cast<quintptr>(hwnd), 10)); // 显示游戏窗口句柄
         windowTitleLabel->setText(title);
         addLog(QString("已绑定窗口：%1").arg(title), LogType::Success);
     } else {
@@ -989,10 +1070,10 @@ void StarryCard::updateCurrentBgLabel()
 
 int StarryCard::SetDPIAware()
 {
-  int screenWidthBeforeAware = GetSystemMetrics(SM_CXSCREEN);
-  SetProcessDPIAware();//设置进程DPI感知
-  int screenWidthAfterAware = GetSystemMetrics(SM_CXSCREEN);
-  return int(96 * double(screenWidthAfterAware) / screenWidthBeforeAware + 0.5);//获取DPI值
+    int screenWidthBeforeAware = GetSystemMetrics(SM_CXSCREEN);
+    SetProcessDPIAware(); // 设置进程DPI感知
+    int screenWidthAfterAware = GetSystemMetrics(SM_CXSCREEN);
+    return int(96 * double(screenWidthAfterAware) / screenWidthBeforeAware + 0.5); // 获取DPI值
 }
 
 QImage StarryCard::captureGameWindow()
@@ -1102,6 +1183,11 @@ void StarryCard::onCaptureAndRecognize()
         return;
     }
 
+    if (!IsGameWindowVisible(targetWindow)) {
+        QMessageBox::warning(this, "错误", "游戏窗口不可见，请先打开游戏窗口！");
+        return;
+    }
+
     QImage screenshot = captureGameWindow();
     if (screenshot.isNull()) {
         QMessageBox::warning(this, "错误", "截图失败");
@@ -1150,93 +1236,99 @@ void StarryCard::onCaptureAndRecognize()
     addLog(QString("图像尺寸：%1x%2").arg(screenshot.width()).arg(screenshot.height()), LogType::Info);
     addLog(QString("图像格式：%1").arg(screenshot.format()), LogType::Info);
     
-    // addLog("开始识别卡片...", LogType::Info);
-    
-    // // 获取配置文件中需要的卡片类型
-    // QStringList requiredCardTypes = getRequiredCardTypesFromConfig();
-    
-    // std::vector<CardInfo> results;
-    // if (!requiredCardTypes.isEmpty()) {
-    //     // 使用针对性识别，只识别配置中需要的卡片类型
-    //     results = cardRecognizer->recognizeCardsDetailed(screenshot, requiredCardTypes);
-    //     addLog(QString("识别目标卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
-    // }
-    
-    // if (results.empty()) {
-    //     addLog("未识别到任何卡片", LogType::Warning);
-    // } else {
-    //     addLog(QString("识别到 %1 张卡片").arg(results.size()), LogType::Success);
-    // }
-    
-    // showRecognitionResults(results);
-    
-    // // 测试四叶草识别功能
-    // addLog("开始测试四叶草识别功能...", LogType::Info);
-    // qDebug() << "=== 开始四叶草识别测试 ===";
-    
-    // // 测试识别1级四叶草（任意绑定状态）
-    // QPair<bool, bool> result = recognizeClover("1级", false, true);
-    // if (result.first) {
-    //     addLog(QString("四叶草识别测试成功！绑定状态: %1").arg(result.second ? "绑定" : "未绑定"), LogType::Success);
-    // } else {
-    //     addLog("四叶草识别测试失败", LogType::Warning);
-    // }
-    // qDebug() << "=== 四叶草识别测试结束 ===";
-
-    // 执行网格线调试
-    addLog("开始网格线调试...", LogType::Info);
-    cardRecognizer->debugGridLines(screenshot);
-
-    // 选择要匹配的配方模板（动态获取可用的配方类型）
-    QStringList availableRecipes = getAvailableRecipeTypes();
-    if (availableRecipes.isEmpty()) {
-        addLog("没有可用的配方模板，无法进行识别", LogType::Error);
+    // 根据调试选择执行相应的功能
+    if (!debugCombo) {
+        addLog("调试选择下拉框未初始化", LogType::Error);
         return;
     }
     
-    // 从UI中选择配方类型，如果没有选择则使用第一个可用的
-    QString targetRecipe;
-    if (recipeCombo && recipeCombo->isEnabled() && recipeCombo->currentText() != "无可用配方") {
-        targetRecipe = recipeCombo->currentText();
-        addLog(QString("从UI选择配方类型: %1").arg(targetRecipe), LogType::Info);
-    } else {
-        targetRecipe = availableRecipes.first();
-        addLog(QString("UI未选择配方类型，使用第一个可用类型: %1").arg(targetRecipe), LogType::Info);
+    QString debugMode = debugCombo->currentText();
+    addLog(QString("执行调试功能: %1").arg(debugMode), LogType::Info);
+    
+    // if (debugMode == "网格线调试" || debugMode == "全部功能") {
+        
+    // }
+    
+    if (debugMode == "配方识别" || debugMode == "全部功能") {
+        // 执行网格线调试
+        addLog("开始网格线调试...", LogType::Info);
+        cardRecognizer->debugGridLines(screenshot);
+        // 执行配方识别功能
+        addLog("开始配方识别...", LogType::Info);
+        
+        // 选择要匹配的配方模板（动态获取可用的配方类型）
+        QStringList availableRecipes = getAvailableRecipeTypes();
+        if (availableRecipes.isEmpty()) {
+            addLog("没有可用的配方模板，无法进行识别", LogType::Error);
+        } else {
+            // 从UI中选择配方类型，如果没有选择则使用第一个可用的
+            QString targetRecipe;
+            if (recipeCombo && recipeCombo->isEnabled() && recipeCombo->currentText() != "无可用配方") {
+                targetRecipe = recipeCombo->currentText();
+                addLog(QString("从UI选择配方类型: %1").arg(targetRecipe), LogType::Info);
+            } else {
+                targetRecipe = availableRecipes.first();
+                addLog(QString("UI未选择配方类型，使用第一个可用类型: %1").arg(targetRecipe), LogType::Info);
+            }
+            
+            if (!availableRecipes.contains(targetRecipe)) {
+                addLog(QString("选择的配方类型 '%1' 不存在，使用第一个可用类型").arg(targetRecipe), LogType::Warning);
+                targetRecipe = availableRecipes.first();
+            }
+            addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")), LogType::Info);
+            addLog(QString("选择匹配模板: %1").arg(targetRecipe), LogType::Info);
+            
+            // 执行带翻页功能的配方识别
+            recognizeRecipeWithPaging(screenshot, targetRecipe);
+        }
     }
     
-    if (!availableRecipes.contains(targetRecipe)) {
-        addLog(QString("选择的配方类型 '%1' 不存在，使用第一个可用类型").arg(targetRecipe), LogType::Warning);
-        targetRecipe = availableRecipes.first();
-    }
-    addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")), LogType::Info);
-    addLog(QString("选择匹配模板: %1").arg(targetRecipe), LogType::Info);
-    
-    // 执行带翻页功能的配方识别
-    recognizeRecipeWithPaging(screenshot, targetRecipe);
+    if (debugMode == "卡片识别" || debugMode == "全部功能") {
+        // 执行卡片识别功能
+        addLog("开始识别卡片...", LogType::Info);
+        
+        // 获取配置文件中需要的卡片类型
+        QStringList requiredCardTypes = getRequiredCardTypesFromConfig();
+        
+        std::vector<CardInfo> results;
+        if (!requiredCardTypes.isEmpty()) {
+            // 使用针对性识别，只识别配置中需要的卡片类型
+            results = cardRecognizer->recognizeCardsDetailed(screenshot, requiredCardTypes);
+            addLog(QString("识别目标卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
+        }
 
-    addLog("开始识别卡片...", LogType::Info);
+        if (results.empty()) {
+            addLog("未识别到任何卡片", LogType::Warning);
+        } else {
+            addLog(QString("识别到 %1 张卡片").arg(results.size()), LogType::Success);
+        }
+
+        // 显示识别结果
+        showRecognitionResults(results);
+    }
     
-    // 获取配置文件中需要的卡片类型
-    QStringList requiredCardTypes = getRequiredCardTypesFromConfig();
-    
-    std::vector<CardInfo> results;
-    if (!requiredCardTypes.isEmpty()) {
-        // 使用针对性识别，只识别配置中需要的卡片类型
-        results = cardRecognizer->recognizeCardsDetailed(screenshot, requiredCardTypes);
-        addLog(QString("识别目标卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
-    } else {
-        // 执行全卡片识别
-        results = cardRecognizer->recognizeCardsDetailed(screenshot);
+    if (debugMode == "四叶草识别" || debugMode == "全部功能") {
+        // 执行四叶草识别功能
+        addLog("开始测试四叶草识别功能...", LogType::Info);
+        qDebug() << "=== 开始四叶草识别测试 ===";
+        
+        // 测试识别1级四叶草（任意绑定状态）
+        QPair<bool, bool> result = recognizeClover("1级", false, true);
+        if (result.first) {
+            addLog(QString("四叶草识别测试成功！绑定状态: %1").arg(result.second ? "绑定" : "未绑定"), LogType::Success);
+        } else {
+            addLog("四叶草识别测试失败", LogType::Warning);
+        }
+        qDebug() << "=== 四叶草识别测试结束 ===";
     }
 
-    if (results.empty()) {
-        addLog("未识别到任何卡片", LogType::Warning);
-    } else {
-        addLog(QString("识别到 %1 张卡片").arg(results.size()), LogType::Success);
+    if (debugMode == "刷新测试" || debugMode == "全部功能") {
+        // 执行刷新测试功能
+        addLog("开始刷新测试...", LogType::Info);
+        ClickRefresh();
     }
-
-    // 显示识别结果
-    showRecognitionResults(results);
+    
+    addLog(QString("调试功能 '%1' 执行完成").arg(debugMode), LogType::Success);
 }
 
 QWidget* StarryCard::createEnhancementConfigPage()
@@ -1407,8 +1499,8 @@ QWidget* StarryCard::createEnhancementConfigPage()
         unboundCheck->setProperty("row", row);
         unboundCheck->setProperty("type", "cloverunbound");
         
-        connect(bindCheck, &QCheckBox::stateChanged, this, &StarryCard::onEnhancementConfigChanged);
-        connect(unboundCheck, &QCheckBox::stateChanged, this, &StarryCard::onEnhancementConfigChanged);
+        connect(bindCheck, &QCheckBox::checkStateChanged, this, &StarryCard::onEnhancementConfigChanged);
+        connect(unboundCheck, &QCheckBox::checkStateChanged, this, &StarryCard::onEnhancementConfigChanged);
         
         cloverStateLayout->addWidget(bindCheck);
         cloverStateLayout->addWidget(unboundCheck);
@@ -2615,11 +2707,11 @@ CardSettingDialog::CardSettingDialog(int row, const QStringList& cardTypes, QWid
     
     // 连接信号
     connect(m_mainCardCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CardSettingDialog::onConfigChanged);
-    connect(m_mainBindCheck, &QCheckBox::stateChanged, this, &CardSettingDialog::onConfigChanged);
-    connect(m_mainUnboundCheck, &QCheckBox::stateChanged, this, &CardSettingDialog::onConfigChanged);
+    connect(m_mainBindCheck, &QCheckBox::checkStateChanged, this, &CardSettingDialog::onConfigChanged);
+    connect(m_mainUnboundCheck, &QCheckBox::checkStateChanged, this, &CardSettingDialog::onConfigChanged);
     connect(m_subCardCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CardSettingDialog::onConfigChanged);
-    connect(m_subBindCheck, &QCheckBox::stateChanged, this, &CardSettingDialog::onConfigChanged);
-    connect(m_subUnboundCheck, &QCheckBox::stateChanged, this, &CardSettingDialog::onConfigChanged);
+    connect(m_subBindCheck, &QCheckBox::checkStateChanged, this, &CardSettingDialog::onConfigChanged);
+    connect(m_subUnboundCheck, &QCheckBox::checkStateChanged, this, &CardSettingDialog::onConfigChanged);
     
     connect(m_applyMainBtn, &QPushButton::clicked, this, &CardSettingDialog::onApplyMainCardToAll);
     connect(m_applySubBtn, &QPushButton::clicked, this, &CardSettingDialog::onApplySubCardToAll);
@@ -2984,7 +3076,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     // 循环点击上翻按钮直到翻到顶部
     int maxPageUpAttempts = 20;
     for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
-        WindowUtils::clickAtPosition(targetWindow, 532, 539);
+        leftClickDPI(targetWindow, 532, 539);
         QThread::msleep(100);
         
         if (isPageAtTop()) {
@@ -3041,7 +3133,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         qDebug() << "翻页" << (pageIndex + 1) << "次后检查第十个位置";
         
         // 点击下翻按钮
-        WindowUtils::clickAtPosition(targetWindow, 535, 563);
+        leftClickDPI(targetWindow, 535, 563);
         QThread::msleep(100);
         
         // 只检查第十个位置（翻页后这个位置会更新）
@@ -3294,7 +3386,7 @@ bool StarryCard::recognizeSingleClover(const QImage& cloverImage, const QString&
         bool actualBindState = false;
         if (checkCloverBindState(cloverImage, clover_bound, clover_unbound, actualBindState)) {
             // 点击四叶草中心位置
-            WindowUtils::clickAtPosition(targetWindow, positionX, positionY);
+            leftClickDPI(targetWindow, positionX, positionY);
             addLog(QString("点击四叶草中心位置: (%1, %2)").arg(positionX).arg(positionY), LogType::Success);
             return true;
         }
@@ -3468,7 +3560,7 @@ QPair<QString, double> StarryCard::recognizeRecipe(const QImage& recipeArea)
         int centerY = 88 + 100;  // 配方区域中心y坐标 (88 + 200/2)
         
         // 点击配方中心位置
-        WindowUtils::clickAtPosition(targetWindow, centerX, centerY);
+        leftClickDPI(targetWindow, centerX, centerY);
         addLog(QString("点击配方中心位置: (%1, %2), 相似度: %3").arg(centerX).arg(centerY).arg(QString::number(bestSimilarity, 'f', 4)), LogType::Success);
     }
     
@@ -3671,7 +3763,7 @@ void StarryCard::recognizeRecipeInGrid(const QImage& screenshot, const QString& 
             int screenY = 88 + centerY;
             
             // 点击配方中心位置
-            WindowUtils::clickAtPosition(targetWindow, screenX, screenY);
+            leftClickDPI(targetWindow, screenX, screenY);
             addLog(QString("点击配方中心位置: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
         }
         
@@ -3774,7 +3866,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
             double bestSim = currentMatches[0].second;
             int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
             int screenX = recipeX + centerX, screenY = recipeY + centerY;
-            WindowUtils::clickAtPosition(targetWindow, screenX, screenY);
+            leftClickDPI(targetWindow, screenX, screenY);
             addLog(QString("在当前页面找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
             return;
         }
@@ -3787,7 +3879,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
     // 修正：点击配方区域内的(355, 20)（相对于全屏为(555+355, 88+20)）
     int clickTopX = recipeX + 355;
     int clickTopY = recipeY + 20;
-    WindowUtils::clickAtPosition(targetWindow, clickTopX, clickTopY);
+    leftClickDPI(targetWindow, clickTopX, clickTopY);
     addLog(QString("[翻页] 点击配方区域顶部: 全屏坐标(%1, %2)").arg(clickTopX).arg(clickTopY), LogType::Info);
     qDebug() << "[翻页] 点击配方区域顶部: 全屏坐标(" << clickTopX << "," << clickTopY << ")";
     QThread::msleep(500);
@@ -3811,7 +3903,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
             double bestSim = matches[0].second;
             int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
             int screenX = recipeX + centerX, screenY = recipeY + centerY;
-            WindowUtils::clickAtPosition(targetWindow, screenX, screenY);
+            leftClickDPI(targetWindow, screenX, screenY);
             addLog(QString("找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
             return;
         }
@@ -3824,7 +3916,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
             // 修正：点击配方区域内的(355, 190)（相对于全屏为(555+355, 88+190)）
             int clickPageX = recipeX + 355;
             int clickPageY = recipeY + 190;
-            WindowUtils::clickAtPosition(targetWindow, clickPageX, clickPageY);
+            leftClickDPI(targetWindow, clickPageX, clickPageY);
             addLog(QString("[翻页] 点击配方区域底部: 全屏坐标(%1, %2)").arg(clickPageX).arg(clickPageY), LogType::Info);
             qDebug() << "[翻页] 点击配方区域底部: 全屏坐标(" << clickPageX << "," << clickPageY << ")";
             QThread::msleep(500);
@@ -3840,7 +3932,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
                     double bestSim = newMatches[0].second;
                     int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
                     int screenX = recipeX + centerX, screenY = recipeY + centerY;
-                    WindowUtils::clickAtPosition(targetWindow, screenX, screenY);
+                    leftClickDPI(targetWindow, screenX, screenY);
                     addLog(QString("在第 %1 页找到配方并点击: (%2, %3), 相似度: %4").arg(pageCount).arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
                     return;
                 }
@@ -3893,6 +3985,33 @@ void StarryCard::updateRecipeCombo()
     }
     
     addLog(QString("配方选择下拉框已更新，可用配方: %1").arg(availableRecipes.join(", ")), LogType::Info);
+}
+
+BOOL StarryCard::leftClickDPI(HWND hwnd, int x, int y)
+{
+    // 获取DPI缩放因子 - 使用更精确的方法
+    HDC hdc = GetDC(hwnd);  // 获取目标窗口的设备上下文
+    if (!hdc) {
+        // 如果获取失败，使用桌面的设备上下文
+        hdc = GetDC(GetDesktopWindow());
+    }
+    
+    int dpi = 96;  // 默认DPI
+    if (hdc) {
+        dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+        ReleaseDC(hwnd, hdc);
+    }
+    
+    double scaleFactor = static_cast<double>(dpi) / 96.0;
+    
+    // 计算DPI缩放后的坐标
+    int scaledX = static_cast<int>(x * scaleFactor);
+    int scaledY = static_cast<int>(y * scaleFactor);
+
+    // 发送鼠标消息
+    BOOL bResult = PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(scaledX, scaledY));
+    PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(scaledX, scaledY));
+    return bResult;
 }
 
 #include "starrycard.moc"
