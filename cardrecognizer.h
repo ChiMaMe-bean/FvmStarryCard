@@ -10,6 +10,7 @@
 #include <QMap>
 #include <QFileInfo>
 #include <QPoint>
+#include <QVector>
 
 // 卡片信息结构体
 struct CardInfo {
@@ -56,6 +57,9 @@ public:
     std::vector<CardInfo> recognizeCardsDetailed(const QImage& screenshot);
     std::vector<CardInfo> recognizeCardsDetailed(const QImage& screenshot, const QStringList& targetCardTypes);
     std::vector<std::string> getRegisteredCards() const;
+    
+    // 网格线相关函数
+    void debugGridLines(const QImage& source);
 
     // Card ROI constants
     static constexpr int CARD_TYPE_ROI_X = 8;
@@ -73,6 +77,9 @@ public:
     static constexpr int CARD_BIND_ROI_WIDTH = 6;
     static constexpr int CARD_BIND_ROI_HEIGHT = 7;
 
+    // 获取配方区域的网格分割线坐标
+    void getRecipeGridLines(const QImage& recipeArea, QVector<int>& xLines, QVector<int>& yLines);
+
 private:
     cv::Mat qImageToCvMat(const QImage& image);
     QImage cvMatToQImage(const cv::Mat& mat);
@@ -83,10 +90,14 @@ private:
     
     const int CARD_WIDTH = 49;
     const int CARD_HEIGHT = 57;
-    const cv::Rect CARD_AREA{559, 91, 343, 456};
+    const cv::Rect CARD_AREA{555, 88, 365, 200};
     const double MATCH_THRESHOLD = 0.28;
     const int MAX_SEPARATOR_SEARCH_HEIGHT = 70;
 
+    // 网格线相关的辅助函数
+    bool isGridLineColor(const QColor& color);
+    bool findFirstCompleteLine(const QImage& image, int& outY);
+    void drawDebugGridLines(QImage& debugImage, int startY);
 
     const int CARDS_PER_ROW = 7;
     const int TOTAL_ROWS = 7;

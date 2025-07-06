@@ -34,6 +34,8 @@
 #include <QCryptographicHash>
 #include <QColor>
 #include <QVector>
+#include <QList>
+#include <QPair>
 #include "custombutton.h"
 #include "utils.h"
 #include "cardrecognizer.h"
@@ -139,7 +141,7 @@ private:
     void setupUI();
     void updateCurrentBgLabel();
     QImage captureGameWindow();
-    void showRecognitionResults(const std::vector<std::string>& results);
+    void showRecognitionResults(const std::vector<CardInfo>& results);
     QWidget* createEnhancementConfigPage();
     int getMinSubCardLevel(int enhancementLevel);
     int getMaxSubCardLevel(int enhancementLevel);
@@ -171,11 +173,22 @@ private:
 
     // 配方识别相关方法
     bool loadRecipeTemplates();
-    QPair<bool, bool> recognizeRecipe(const QString& recipeType);
+    QPair<QString, double> recognizeRecipe(const QImage& recipeArea);
+    QVector<double> calculateRecipeHistogram(const QImage& image);
+    QList<QPair<QPoint, double>> findBestMatchesInGrid(const QImage& recipeArea, const QString& targetRecipe);
+    void recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe);
+    void recognizeRecipeWithPaging(const QImage& screenshot, const QString& targetRecipe);
+    QStringList getAvailableRecipeTypes() const; // 获取所有可用的配方类型
+
+    // 配方模板数据
+    QHash<QString, QVector<double>> recipeTemplateHistograms;
+    QHash<QString, QImage> recipeTemplateImages;
+    bool recipeTemplatesLoaded = false;
 
     QStackedWidget *centerStack = nullptr;
     QButtonGroup *buttonGroup = nullptr;
     QComboBox *themeCombo = nullptr;
+    QComboBox *recipeCombo = nullptr;
     QPushButton *selectCustomBgBtn = nullptr;
     CustomButton *trackMouseBtn = nullptr;
     QLineEdit *handleDisplayEdit = nullptr;
@@ -216,10 +229,6 @@ private:
     QVector<double> pageDownHistogram;  // 翻页到底部颜色直方图
     bool pageTemplatesLoaded = false;
 
-    // 配方识别相关数据
-    QHash<QString, QString> recipeTemplateHashes; // 配方类型名 -> 哈希值
-    QHash<QString, QImage> recipeTemplateImages; // 配方类型名 -> 模板图像
-    QHash<QString, QVector<double>> recipeTemplateHistograms; // 配方类型名 -> 颜色直方图
-    bool recipeTemplatesLoaded = false;
+    void updateRecipeCombo(); // 更新配方选择下拉框
 };
 #endif // STARRYCARD_H
