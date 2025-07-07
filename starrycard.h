@@ -39,6 +39,7 @@
 #include "custombutton.h"
 #include "utils.h"
 #include "cardrecognizer.h"
+#include "reciperecognizer.h"
 #include <windows.h>
 #include <winuser.h>
 
@@ -259,6 +260,8 @@ private:
     QVector<double> pageUpHistogram;    // 翻页到顶部颜色直方图
     QVector<double> pageDownHistogram;  // 翻页到底部颜色直方图
     bool pageTemplatesLoaded = false;
+
+    RecipeRecognizer* recipeRecognizer; // 新增成员变量
 
     void updateRecipeCombo(); // 更新配方选择下拉框
 };

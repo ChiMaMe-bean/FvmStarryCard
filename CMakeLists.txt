@@ -38,6 +38,8 @@ set(PROJECT_SOURCES
         resources_level.qrc
         resources_position.qrc
         resources_recipe.qrc
+        reciperecognizer.cpp
+        reciperecognizer.h
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

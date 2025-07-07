@@ -39,7 +39,6 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QScrollBar>
-#include <opencv2/opencv.hpp>
 #include <chrono>
 
 // 定义全局变量，用于存储 DPI 信息
@@ -114,6 +113,8 @@ StarryCard::StarryCard(QWidget *parent)
     QString testHash = calculateImageHash(testImage);
     qDebug() << "8x8白色图像哈希值:" << testHash;
     qDebug() << "=== 图像哈希算法测试结束 ===";
+
+    recipeRecognizer = new RecipeRecognizer();
 }
 
 void StarryCard::setupUI()
@@ -662,6 +663,8 @@ StarryCard::~StarryCard()
         globalBitmapWidth = 0;
         globalBitmapHeight = 0;
     }
+
+    delete recipeRecognizer;
 }
 
 void StarryCard::startMouseTracking() {
@@ -1305,7 +1308,7 @@ void StarryCard::onCaptureAndRecognize()
     if (debugMode == "配方识别" || debugMode == "全部功能") {
         // 执行网格线调试
         addLog("开始网格线调试...", LogType::Info);
-        cardRecognizer->debugGridLines(screenshot);
+        recipeRecognizer->debugGridLines(screenshot);
         // 执行配方识别功能
         addLog("开始配方识别...", LogType::Info);
         
@@ -3715,7 +3718,7 @@ void StarryCard::recognizeRecipeInGrid(const QImage& screenshot, const QString& 
         
         // 获取分割线坐标
         QVector<int> xLines, yLines;
-        cardRecognizer->getRecipeGridLines(recipeArea, xLines, yLines);
+        recipeRecognizer->getRecipeGridLines(recipeArea, xLines, yLines);
         addLog(QString("检测到横线y: %1, 纵线x: %2").arg(yLines.size()).arg(xLines.size()), LogType::Info);
         
         // 执行配方识别
@@ -3844,15 +3847,17 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
         QImage recipeArea = pageImg.copy(recipeX, recipeY, recipeW, recipeH);
         QImage recognitionArea = recipeArea.copy(0, 0, recipeW, recogH);
         QVector<int> xLines, yLines;
-        cardRecognizer->getRecipeGridLines(recognitionArea, xLines, yLines);
+        recipeRecognizer->getRecipeGridLines(recognitionArea, xLines, yLines);
         auto startTime = std::chrono::high_resolution_clock::now();
         QList<QPair<QPoint, double>> matches;
         QImage targetTemplate = recipeTemplateImages[targetRecipe];
         QRect recipeROI(4, 4, 38, 24);
         for (int row = 0; row + 1 < yLines.size(); ++row) {
             for (int col = 0; col + 1 < xLines.size(); ++col) {
-                int x0 = xLines[col], y0 = yLines[row];
-                int w = xLines[col + 1] - x0, h = yLines[row + 1] - y0;
+                int x0 = xLines[col];
+                int y0 = yLines[row];
+                int w = xLines[col + 1] - x0;
+                int h = yLines[row + 1] - y0;
                 if (w <= 0 || h <= 0) continue;
                 QRect gridRect(x0, y0, w, h);
                 QImage gridImage = recognitionArea.copy(gridRect);
