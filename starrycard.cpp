@@ -19,7 +19,12 @@
 #include <QDebug>
 #include <QMouseEvent>
 #include <Windows.h>  // 包含 Windows.h 头文件，用于获取屏幕分辨率
-#include <cstring> 
+#include <cstring>
+
+// BGR颜色分量提取宏定义(rgb为0x00RRGGBB类型)
+#define bgrRValue(rgb)      (LOBYTE((rgb)>>16))
+#define bgrGValue(rgb)      (LOBYTE(((WORD)(rgb)) >> 8))
+#define bgrBValue(rgb)      (LOBYTE(rgb))
 #include <QTimer>
 #include <QMessageBox>
 #include <QTime>
@@ -649,6 +654,14 @@ StarryCard::~StarryCard()
     if (enhancementTimer) {
         enhancementTimer->stop();
     }
+    
+    // 清理全局像素数据
+    if (globalPixelData) {
+        delete[] globalPixelData;
+        globalPixelData = nullptr;
+        globalBitmapWidth = 0;
+        globalBitmapHeight = 0;
+    }
 }
 
 void StarryCard::startMouseTracking() {
@@ -694,11 +707,62 @@ bool StarryCard::IsGameWindowVisible(HWND hWnd)
 }
 
 //点击刷新按钮并记录
-void StarryCard::ClickRefresh()
+void StarryCard::clickRefresh()
 {
     int RefreshX = 228, RefreshY = 44;
-    leftClickDPI(hallWindow, RefreshX, RefreshY); // 重新点击刷新按钮
+    leftClickDPI(hwndHall, RefreshX, RefreshY); // 重新点击刷新按钮
     addLog(QString("点击刷新按钮:(%1,%2)").arg(RefreshX).arg(RefreshY), LogType::Info);
+}
+
+// 找到游戏窗口
+HWND StarryCard::getGameWindow(HWND hWndChild) {
+    // 查找二级子窗口
+    HWND hWnd2 = FindWindowEx(hWndChild, nullptr, L"CefBrowserWindow", nullptr);
+    if (!hWnd2) {
+        qDebug() << "Failed to find CefBrowserWindow child window";
+        return nullptr;
+    }
+
+    // 查找三级子窗口
+    HWND hWnd3 = FindWindowEx(hWnd2, nullptr, L"Chrome_WidgetWin_0", nullptr);
+    if (!hWnd3) {
+        qDebug() << "Failed to find Chrome_WidgetWin_0 child window";
+        return nullptr;
+    }
+
+    // 查找四级子窗口
+    HWND hWnd4 = FindWindowEx(hWnd3, nullptr, L"WrapperNativeWindowClass", nullptr);
+    if (!hWnd4) {
+        qDebug() << "Failed to find WrapperNativeWindowClass child window";
+        return nullptr;
+    }
+
+    // 查找五级子窗口
+    return FindWindowEx(hWnd4, nullptr, L"NativeWindowClass", nullptr);
+}
+
+// 找到游戏大厅当前显示的游戏窗口，找不到返回NULL
+HWND StarryCard::getActiveGameWindow(HWND hwndHall) {
+    // 按微端查找小号窗口
+    HWND hWndChild = FindWindowEx(hwndHall, nullptr, L"WebPluginView", nullptr);
+    if (hWndChild) {
+        return hWndChild; // 找到了直接返回游戏窗口
+    }
+
+    hWndChild = nullptr;
+    while (true) {
+        // 查找一个小号窗口
+        hWndChild = FindWindowEx(hwndHall, hWndChild, L"TabContentWnd", nullptr);
+        if (!hWndChild) {
+            qDebug() << "No more TabContentWnd child windows found";
+            return nullptr; // 没有小号窗口了，还没找到活跃窗口，就返回NULL
+        }
+
+        HWND hWndGame = getGameWindow(hWndChild);
+        if (hWndGame) {
+            return hWndGame;
+        }
+    }
 }
 
 void StarryCard::stopMouseTracking() {
@@ -710,7 +774,7 @@ void StarryCard::stopMouseTracking() {
     HWND hwnd = WindowUtils::getWindowFromPoint(globalPos);
     
     if (!hwnd) {
-        targetWindow = nullptr;
+        hwndGame = nullptr;
         updateHandleDisplay(nullptr);
         
         // 禁用截图识别按钮
@@ -727,8 +791,8 @@ void StarryCard::stopMouseTracking() {
     }
 
     if (!WindowUtils::isGameWindow(hwnd)) {
-        targetWindow = nullptr;
-        updateHandleDisplay(nullptr);
+        hwndGame = nullptr;
+        updateHandleDisplay(hwnd);
         
         // 禁用截图识别按钮
         if (captureBtn) {
@@ -744,8 +808,8 @@ void StarryCard::stopMouseTracking() {
     }
 
     // 成功获取目标窗口
-    targetWindow = hwnd;              // 游戏窗口
-    hallWindow = GetHallWindow(hwnd); // 大厅窗口
+    hwndGame = hwnd;              // 游戏窗口
+    hwndHall = GetHallWindow(hwnd); // 大厅窗口
     updateHandleDisplay(hwnd);
     
     // 启用截图识别按钮
@@ -758,7 +822,7 @@ void StarryCard::stopMouseTracking() {
 
 void StarryCard::startEnhancement()
 {
-    if (!targetWindow || !IsWindow(targetWindow)) {
+    if (!hwndGame || !IsWindow(hwndGame)) {
         QMessageBox::warning(this, "错误", "请先绑定有效的游戏窗口！");
         return;
     }
@@ -804,7 +868,7 @@ void StarryCard::stopEnhancement()
 
 void StarryCard::performEnhancement()
 {
-    if (!targetWindow || !IsWindow(targetWindow)) {
+    if (!hwndGame || !IsWindow(hwndGame)) {
         stopEnhancement();
         QMessageBox::warning(this, "错误", "目标窗口已失效，强化已停止！");
         addLog("目标窗口已失效，强化已停止！", LogType::Error);
@@ -829,19 +893,8 @@ void StarryCard::performEnhancement()
 
     // 更新当前强化等级（这里简化为每次执行加1，实际应用中可能需要更复杂的逻辑）
     currentEnhancementLevel++;
-    
-    // 如果需要在强化过程中进行卡片识别，可以使用预加载的卡片类型
-    // 这样避免了每次循环都重新读取配置文件，提高了效率
-    if (!requiredCardTypesForEnhancement.isEmpty()) {
-        // 示例：在需要时进行针对性卡片识别
-        // QImage screenshot = captureGameWindow();
-        // if (!screenshot.isNull()) {
-        //     std::vector<std::string> results = cardRecognizer->recognizeCards(screenshot, requiredCardTypesForEnhancement);
-        //     // 处理识别结果...
-        // }
-    }
 
-    leftClickDPI(targetWindow, 284, 427);
+    leftClickDPI(hwndGame, 284, 427);
     addLog(QString("执行强化操作：等级 %1 -> %2 (强化范围: %3-%4级)").arg(currentEnhancementLevel-1).arg(currentEnhancementLevel).arg(minLevel).arg(maxLevel), LogType::Info);
 }
 
@@ -977,7 +1030,7 @@ void StarryCard::updateHandleDisplay(HWND hwnd) {
     }
 
     if (hwnd) {
-        QString title = WindowUtils::getWindowTitle(hallWindow); // 获取大厅窗口标题
+        QString title = WindowUtils::getWindowTitle(hwndHall); // 获取大厅窗口标题
         handleDisplayEdit->setText(QString::number(reinterpret_cast<quintptr>(hwnd), 10)); // 显示游戏窗口句柄
         windowTitleLabel->setText(title);
         addLog(QString("已绑定窗口：%1").arg(title), LogType::Success);
@@ -1078,14 +1131,14 @@ int StarryCard::SetDPIAware()
 
 QImage StarryCard::captureGameWindow()
 {
-    if (!targetWindow || !IsWindow(targetWindow)) {
+    if (!hwndGame || !IsWindow(hwndGame)) {
         addLog("无效的窗口句柄", LogType::Error);
         return QImage();
     }
 
     // 获取窗口位置和大小
     RECT rect;
-    if (!GetWindowRect(targetWindow, &rect)) {
+    if (!GetWindowRect(hwndGame, &rect)) {
         addLog("获取窗口位置失败", LogType::Error);
         return QImage();
     }
@@ -1094,7 +1147,7 @@ QImage StarryCard::captureGameWindow()
     addLog(QString("窗口位置：(%1, %2) - (%3, %4)").arg(rect.left).arg(rect.top).arg(rect.right).arg(rect.bottom), LogType::Info);
     
     // 获取窗口DC
-    HDC hdcWindow = GetDC(targetWindow);
+    HDC hdcWindow = GetDC(hwndGame);
     if (!hdcWindow) {
         addLog("获取窗口DC失败", LogType::Error);
         return QImage();
@@ -1104,7 +1157,7 @@ QImage StarryCard::captureGameWindow()
     HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
     if (!hdcMemDC) {
         addLog("创建兼容DC失败", LogType::Error);
-        ReleaseDC(targetWindow, hdcWindow);
+        ReleaseDC(hwndGame, hdcWindow);
         return QImage();
     }
 
@@ -1115,7 +1168,7 @@ QImage StarryCard::captureGameWindow()
     if (!hBitmap) {
         addLog("创建兼容位图失败", LogType::Error);
         DeleteDC(hdcMemDC);
-        ReleaseDC(targetWindow, hdcWindow);
+        ReleaseDC(hwndGame, hdcWindow);
         return QImage();
     }
 
@@ -1127,7 +1180,7 @@ QImage StarryCard::captureGameWindow()
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
-        ReleaseDC(targetWindow, hdcWindow);
+        ReleaseDC(hwndGame, hdcWindow);
         return QImage();
     }
 
@@ -1150,7 +1203,7 @@ QImage StarryCard::captureGameWindow()
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
-        ReleaseDC(targetWindow, hdcWindow);
+        ReleaseDC(hwndGame, hdcWindow);
         return QImage();
     }
 
@@ -1158,7 +1211,7 @@ QImage StarryCard::captureGameWindow()
     SelectObject(hdcMemDC, hOldBitmap);
     DeleteObject(hBitmap);
     DeleteDC(hdcMemDC);
-    ReleaseDC(targetWindow, hdcWindow);
+    ReleaseDC(hwndGame, hdcWindow);
 
     addLog(QString("成功截取窗口图像：%1x%2").arg(width).arg(height), LogType::Success);
     return image;
@@ -1178,12 +1231,12 @@ void StarryCard::showRecognitionResults(const std::vector<CardInfo>& results)
 
 void StarryCard::onCaptureAndRecognize()
 {
-    if (!targetWindow || !IsWindow(targetWindow)) {
+    if (!hwndGame || !IsWindow(hwndGame)) {
         QMessageBox::warning(this, "错误", "请先绑定有效的游戏窗口！");
         return;
     }
 
-    if (!IsGameWindowVisible(targetWindow)) {
+    if (!IsGameWindowVisible(hwndGame)) {
         QMessageBox::warning(this, "错误", "游戏窗口不可见，请先打开游戏窗口！");
         return;
     }
@@ -1325,7 +1378,7 @@ void StarryCard::onCaptureAndRecognize()
     if (debugMode == "刷新测试" || debugMode == "全部功能") {
         // 执行刷新测试功能
         addLog("开始刷新测试...", LogType::Info);
-        ClickRefresh();
+        refreshGameWindow();
     }
     
     addLog(QString("调试功能 '%1' 执行完成").arg(debugMode), LogType::Success);
@@ -3062,7 +3115,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         return qMakePair(false, false);
     }
     
-    if (!targetWindow || !IsWindow(targetWindow)) {
+    if (!hwndGame || !IsWindow(hwndGame)) {
         addLog("游戏窗口无效，无法进行四叶草识别", LogType::Error);
         return qMakePair(false, false);
     }
@@ -3076,7 +3129,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     // 循环点击上翻按钮直到翻到顶部
     int maxPageUpAttempts = 20;
     for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
-        leftClickDPI(targetWindow, 532, 539);
+        leftClickDPI(hwndGame, 532, 539);
         QThread::msleep(100);
         
         if (isPageAtTop()) {
@@ -3133,7 +3186,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         qDebug() << "翻页" << (pageIndex + 1) << "次后检查第十个位置";
         
         // 点击下翻按钮
-        leftClickDPI(targetWindow, 535, 563);
+        leftClickDPI(hwndGame, 535, 563);
         QThread::msleep(100);
         
         // 只检查第十个位置（翻页后这个位置会更新）
@@ -3230,7 +3283,7 @@ bool StarryCard::loadPageTemplates()
 
 bool StarryCard::isPageAtTop()
 {
-    if (!pageTemplatesLoaded || !targetWindow || !IsWindow(targetWindow)) {
+    if (!pageTemplatesLoaded || !hwndGame || !IsWindow(hwndGame)) {
         return false;
     }
     
@@ -3278,7 +3331,7 @@ bool StarryCard::isPageAtTop()
 
 bool StarryCard::isPageAtBottom()
 {
-    if (!pageTemplatesLoaded || !targetWindow || !IsWindow(targetWindow)) {
+    if (!pageTemplatesLoaded || !hwndGame || !IsWindow(hwndGame)) {
         return false;
     }
     
@@ -3386,7 +3439,7 @@ bool StarryCard::recognizeSingleClover(const QImage& cloverImage, const QString&
         bool actualBindState = false;
         if (checkCloverBindState(cloverImage, clover_bound, clover_unbound, actualBindState)) {
             // 点击四叶草中心位置
-            leftClickDPI(targetWindow, positionX, positionY);
+            leftClickDPI(hwndGame, positionX, positionY);
             addLog(QString("点击四叶草中心位置: (%1, %2)").arg(positionX).arg(positionY), LogType::Success);
             return true;
         }
@@ -3560,7 +3613,7 @@ QPair<QString, double> StarryCard::recognizeRecipe(const QImage& recipeArea)
         int centerY = 88 + 100;  // 配方区域中心y坐标 (88 + 200/2)
         
         // 点击配方中心位置
-        leftClickDPI(targetWindow, centerX, centerY);
+        leftClickDPI(hwndGame, centerX, centerY);
         addLog(QString("点击配方中心位置: (%1, %2), 相似度: %3").arg(centerX).arg(centerY).arg(QString::number(bestSimilarity, 'f', 4)), LogType::Success);
     }
     
@@ -3763,7 +3816,7 @@ void StarryCard::recognizeRecipeInGrid(const QImage& screenshot, const QString& 
             int screenY = 88 + centerY;
             
             // 点击配方中心位置
-            leftClickDPI(targetWindow, screenX, screenY);
+            leftClickDPI(hwndGame, screenX, screenY);
             addLog(QString("点击配方中心位置: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
         }
         
@@ -3866,7 +3919,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
             double bestSim = currentMatches[0].second;
             int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
             int screenX = recipeX + centerX, screenY = recipeY + centerY;
-            leftClickDPI(targetWindow, screenX, screenY);
+            leftClickDPI(hwndGame, screenX, screenY);
             addLog(QString("在当前页面找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
             return;
         }
@@ -3879,7 +3932,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
     // 修正：点击配方区域内的(355, 20)（相对于全屏为(555+355, 88+20)）
     int clickTopX = recipeX + 355;
     int clickTopY = recipeY + 20;
-    leftClickDPI(targetWindow, clickTopX, clickTopY);
+    leftClickDPI(hwndGame, clickTopX, clickTopY);
     addLog(QString("[翻页] 点击配方区域顶部: 全屏坐标(%1, %2)").arg(clickTopX).arg(clickTopY), LogType::Info);
     qDebug() << "[翻页] 点击配方区域顶部: 全屏坐标(" << clickTopX << "," << clickTopY << ")";
     QThread::msleep(500);
@@ -3903,7 +3956,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
             double bestSim = matches[0].second;
             int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
             int screenX = recipeX + centerX, screenY = recipeY + centerY;
-            leftClickDPI(targetWindow, screenX, screenY);
+            leftClickDPI(hwndGame, screenX, screenY);
             addLog(QString("找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
             return;
         }
@@ -3916,7 +3969,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
             // 修正：点击配方区域内的(355, 190)（相对于全屏为(555+355, 88+190)）
             int clickPageX = recipeX + 355;
             int clickPageY = recipeY + 190;
-            leftClickDPI(targetWindow, clickPageX, clickPageY);
+            leftClickDPI(hwndGame, clickPageX, clickPageY);
             addLog(QString("[翻页] 点击配方区域底部: 全屏坐标(%1, %2)").arg(clickPageX).arg(clickPageY), LogType::Info);
             qDebug() << "[翻页] 点击配方区域底部: 全屏坐标(" << clickPageX << "," << clickPageY << ")";
             QThread::msleep(500);
@@ -3932,7 +3985,7 @@ void StarryCard::recognizeRecipeWithPaging(const QImage& screenshot, const QStri
                     double bestSim = newMatches[0].second;
                     int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
                     int screenX = recipeX + centerX, screenY = recipeY + centerY;
-                    leftClickDPI(targetWindow, screenX, screenY);
+                    leftClickDPI(hwndGame, screenX, screenY);
                     addLog(QString("在第 %1 页找到配方并点击: (%2, %3), 相似度: %4").arg(pageCount).arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
                     return;
                 }
@@ -4012,6 +4065,299 @@ BOOL StarryCard::leftClickDPI(HWND hwnd, int x, int y)
     BOOL bResult = PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(scaledX, scaledY));
     PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(scaledX, scaledY));
     return bResult;
+}
+
+// 检测颜色是否符合指定游戏平台的特征颜色
+BOOL StarryCard::isGamePlatformColor(COLORREF color, int platformType)
+{
+    color &= 0x00ffffff;
+    switch (platformType)
+    {
+    case 1: // 4399平台
+        return bgrRValue(color) >= 246 && bgrGValue(color) >= 240 && bgrBValue(color) >= 214 &&
+               bgrRValue(color) <= 255 && bgrGValue(color) <= 252 && bgrBValue(color) <= 226;
+    case 2: // QQ空间
+        return color == 0xfdffea;
+    case 3: // QQ大厅
+        return color == 0x3c3c3d;
+    case 4: // 纯白色检验，可能是QQ空间登录界面或4399还没加载出来
+        return color == 0xffffff;
+    case 5: // 断网界面
+        return bgrRValue(color) >= 211 && bgrGValue(color) >= 227 && bgrBValue(color) >= 236 &&
+               bgrRValue(color) <= 213 && bgrGValue(color) <= 229 && bgrBValue(color) <= 237;
+    }
+    return false;
+}
+
+BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pixelData)
+{
+    // 初始化输出参数
+    width = 0;
+    height = 0;
+    pixelData = nullptr;
+    
+    // 验证窗口句柄
+    if (!hwnd || !IsWindow(hwnd)) {
+        addLog("无效的窗口句柄", LogType::Error);
+        return FALSE;
+    }
+    
+    // 释放之前的全局像素数据
+    if (globalPixelData != nullptr) {
+        delete[] globalPixelData;
+        globalPixelData = nullptr;
+        globalBitmapWidth = 0;
+        globalBitmapHeight = 0;
+    }
+    
+    // 获取窗口整体尺寸（包含标题栏等）
+    RECT windowRect;
+    if (!GetWindowRect(hwnd, &windowRect)) {
+        addLog("获取窗口矩形失败", LogType::Error);
+        return FALSE;
+    }
+    
+    width = windowRect.right - windowRect.left;
+    height = windowRect.bottom - windowRect.top;
+    
+    if (width <= 0 || height <= 0) {
+        addLog("窗口尺寸无效", LogType::Error);
+        return FALSE;
+    }
+    
+    // 获取窗口设备上下文
+    HDC hdcWindow = GetDC(hwnd);
+    if (!hdcWindow) {
+        addLog("获取窗口设备上下文失败", LogType::Error);
+        return FALSE;
+    }
+    
+    // 创建兼容设备上下文
+    HDC hdcMem = CreateCompatibleDC(hdcWindow);
+    if (!hdcMem) {
+        addLog("创建兼容设备上下文失败", LogType::Error);
+        ReleaseDC(hwnd, hdcWindow);
+        return FALSE;
+    }
+    
+    // 创建兼容位图
+    HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
+    if (!hBitmap) {
+        addLog("创建兼容位图失败", LogType::Error);
+        DeleteDC(hdcMem);
+        ReleaseDC(hwnd, hdcWindow);
+        return FALSE;
+    }
+    
+    // 选择位图到内存设备上下文
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
+    
+    // 复制窗口内容到位图
+    if (!BitBlt(hdcMem, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY)) {
+        addLog("复制窗口内容到位图失败", LogType::Error);
+        SelectObject(hdcMem, hOldBitmap);
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMem);
+        ReleaseDC(hwnd, hdcWindow);
+        return FALSE;
+    }
+    
+    // 分配全局像素数据内存
+    int pixelCount = width * height;
+    globalPixelData = new(std::nothrow) UINT32[pixelCount];
+    if (!globalPixelData) {
+        addLog("分配像素数据内存失败", LogType::Error);
+        SelectObject(hdcMem, hOldBitmap);
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMem);
+        ReleaseDC(hwnd, hdcWindow);
+        return FALSE;
+    }
+    
+    // 设置BITMAPINFO结构
+    BITMAPINFO bmi = { 0 };
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height;  // 负值表示自上而下的位图
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;     // 32位色深
+    bmi.bmiHeader.biCompression = BI_RGB;
+    
+    // 获取位图像素数据
+    int scanLines = GetDIBits(hdcMem, hBitmap, 0, height, globalPixelData, &bmi, DIB_RGB_COLORS);
+    if (scanLines == 0) {
+        addLog("获取位图像素数据失败", LogType::Error);
+        delete[] globalPixelData;
+        globalPixelData = nullptr;
+        width = 0;
+        height = 0;
+        SelectObject(hdcMem, hOldBitmap);
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMem);
+        ReleaseDC(hwnd, hdcWindow);
+        return FALSE;
+    }
+    
+    // 设置全局变量和输出参数
+    globalBitmapWidth = width;
+    globalBitmapHeight = height;
+    pixelData = globalPixelData;
+    
+    // 清理资源
+    SelectObject(hdcMem, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(hwnd, hdcWindow);
+    
+    addLog(QString("成功获取窗口位图：%1x%2，像素格式：0x00RRGGBB").arg(width).arg(height), LogType::Success);
+    return TRUE;
+}
+
+int StarryCard::recognizeBitmapRegionColor(const QRect& region)
+{
+    // 验证全局位图数据是否有效
+    if (!globalPixelData || globalBitmapWidth <= 0 || globalBitmapHeight <= 0) {
+        addLog("全局位图数据无效，请先调用getWindowBitmap获取位图", LogType::Error);
+        return -1;
+    }
+    
+    // 验证矩形区域是否在位图范围内
+    if (region.left() < 0 || region.top() < 0 || 
+        region.right() >= globalBitmapWidth || region.bottom() >= globalBitmapHeight ||
+        region.width() <= 0 || region.height() <= 0) {
+        addLog(QString("指定区域超出位图范围：位图尺寸(%1x%2)，指定区域(%3,%4,%5,%6)")
+               .arg(globalBitmapWidth).arg(globalBitmapHeight)
+               .arg(region.left()).arg(region.top()).arg(region.right()).arg(region.bottom()), LogType::Error);
+        return -1;
+    }
+    
+    // 从平台类型1开始逐个测试到5
+    for (int platformType = 1; platformType <= 5; ++platformType) {
+        int matchCount = 0;
+        int totalPixels = 0;
+        
+        // 遍历指定矩形区域内的所有像素
+        for (int y = region.top(); y <= region.bottom(); ++y) {
+            for (int x = region.left(); x <= region.right(); ++x) {
+                // 计算像素在数组中的索引
+                int pixelIndex = y * globalBitmapWidth + x;
+                
+                // 获取像素颜色值（格式为0x00BBGGRR）
+                UINT32 pixelValue = globalPixelData[pixelIndex];
+                COLORREF color = (COLORREF)pixelValue;
+                
+                // 检测颜色是否匹配当前平台类型
+                if (isGamePlatformColor(color, platformType)) {
+                    matchCount++;
+                }
+                totalPixels++;
+            }
+        }
+        
+        // 计算匹配率
+        double matchRate = (totalPixels > 0) ? (double)matchCount / totalPixels : 0.0;
+        
+        addLog(QString("平台类型%1颜色检测：匹配像素%2/%3，匹配率：%4%")
+               .arg(platformType).arg(matchCount).arg(totalPixels)
+               .arg(QString::number(matchRate * 100, 'f', 2)), LogType::Info);
+        
+        // 如果匹配率超过80%，认为识别成功
+        if (matchRate >= 0.8) {
+            QString platformName;
+            switch (platformType) {
+                case 1: platformName = "4399平台"; break;
+                case 2: platformName = "QQ空间"; break;
+                case 3: platformName = "QQ大厅"; break;
+                case 4: platformName = "纯白色（登录界面）"; break;
+                case 5: platformName = "断网界面"; break;
+                default: platformName = "未知平台"; break;
+            }
+            
+            addLog(QString("成功识别为：%1（平台类型%2），匹配率：%3%")
+                   .arg(platformName).arg(platformType)
+                   .arg(QString::number(matchRate * 100, 'f', 2)), LogType::Success);
+            return platformType;
+        }
+    }
+    
+    // 所有平台类型都未匹配成功
+    addLog("未能识别出匹配的平台类型", LogType::Warning);
+    return 0;  // 返回0表示未识别成功
+}
+
+//找到一个小号子窗口下唯一的选服窗口
+HWND StarryCard::getServerWindow(HWND hWndChild)
+{
+    HWND hWnd1 = FindWindowEx(hWndChild, nullptr, L"CefBrowserWindow", nullptr); // 一级子窗口
+    if (hWnd1 == nullptr)
+        return nullptr;
+    HWND hWnd2 = FindWindowEx(hWnd1, nullptr, L"Chrome_WidgetWin_0", nullptr); // 二级子窗口
+    if (hWnd2 == nullptr)
+        return nullptr;
+    return FindWindowEx(hWnd2, nullptr, L"Chrome_RenderWidgetHostHWND", nullptr); // 三级子窗口
+}
+
+//找到游戏大厅当前显示的选服窗口，找不到返回nullptr
+HWND StarryCard::getActiveServerWindow(HWND hWndHall)
+{
+    wchar_t className[256];
+    GetClassNameW(hWndHall, className, 256);                 // 获取窗口类名
+    if (wcscmp(className, L"ApolloRuntimeContentWindow") == 0) // 如果是微端窗口，直接返回
+    {
+        addLog("找到微端窗口", LogType::Success);
+        return hWndHall; //微端的选服窗口就是微端窗口
+    }
+    if (wcscmp(className, L"DUIWindow") != 0) // 不是微端也不是大厅窗口
+        return nullptr;
+    // 判断为游戏大厅窗口
+    addLog("找到大厅窗口，窗口名：" + QString(className), LogType::Success);
+    HWND hWndChild = nullptr, hWndServer = nullptr;
+    while (true)
+    {
+        hWndChild = FindWindowEx(hWndHall, hWndChild, L"TabContentWnd", nullptr); // 查找一个小号窗口
+        if (hWndChild == nullptr)
+            return nullptr; // 没有小号窗口了，还没找到活跃窗口，就返回nullptr
+        hWndServer = getServerWindow(hWndChild);
+        if (hWndServer != nullptr)
+            return hWndServer;
+    }
+}
+
+void StarryCard::refreshGameWindow()
+{
+    HWND hwndOrigin = getActiveGameWindow(hwndHall);
+
+    // 点击刷新按钮
+    clickRefresh();
+
+    int counter = 0;
+    while(hwndOrigin && hwndOrigin == getActiveGameWindow(hwndHall))
+    {
+        counter++;
+        if(counter > 50) // 5秒
+        {
+            addLog("刷新失败，点击刷新按钮无效", LogType::Error);
+            return;
+        }
+        Sleep(100);
+    }
+    addLog("刷新成功", LogType::Success);
+
+    Sleep(500); // 刷新成功等待1秒，防止游戏窗口还没加载出来
+
+    hwndServer = getActiveServerWindow(hwndHall);
+    addLog(QString("找到选服窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndServer), 10)), LogType::Success);
+
+    int serverWidth, serverHeight;
+    RECT rectHall;
+    GetWindowRect(hwndHall, &rectHall);
+    RECT rectServer;
+    GetWindowRect(hwndServer, &rectServer);
+    serverWidth = rectServer.right - rectServer.left;
+    serverHeight = rectServer.bottom - rectServer.top;
+
+    int x = rectServer.left - rectHall.left;
+    int y = rectServer.top - rectHall.top;
 }
 
 #include "starrycard.moc"

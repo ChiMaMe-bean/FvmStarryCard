@@ -52,7 +52,6 @@ class CardRecognizer : public QObject
 public:
     explicit CardRecognizer(QObject *parent = nullptr);
     bool loadTemplates();
-    std::vector<std::string> recognizeCards(const QImage& screenshot, const QStringList& targetCardTypes);
     std::vector<CardInfo> recognizeCardsDetailed(const QImage& screenshot, const QStringList& targetCardTypes);
     std::vector<std::string> getRegisteredCards() const;
     

@@ -40,6 +40,7 @@
 #include "utils.h"
 #include "cardrecognizer.h"
 #include <windows.h>
+#include <winuser.h>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class StarryCard; }
@@ -131,7 +132,7 @@ private slots:
     void onMinEnhancementLevelChanged();
     HWND GetHallWindow(HWND hWnd);
     bool IsGameWindowVisible(HWND hWnd);
-    void ClickRefresh();
+    void clickRefresh();
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -186,11 +187,26 @@ private:
     
     // 鼠标点击相关方法
     BOOL leftClickDPI(HWND hwnd, int x, int y);
+    
+    // 窗口位图获取方法
+    BOOL getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pixelData);
+    
+    // 颜色识别相关方法
+    BOOL isGamePlatformColor(COLORREF color, int platformType);
+    int recognizeBitmapRegionColor(const QRect& region);
 
     // 配方模板数据
     QHash<QString, QVector<double>> recipeTemplateHistograms;
     QHash<QString, QImage> recipeTemplateImages;
     bool recipeTemplatesLoaded = false;
+
+    // 寻找游戏窗口相关方法
+    HWND getGameWindow(HWND hwndHall);
+    HWND getActiveGameWindow(HWND hwndHall);
+    // 寻找选服窗口相关方法
+    HWND getServerWindow(HWND hwndChild);
+    HWND getActiveServerWindow(HWND hwndHall);
+    void refreshGameWindow();
 
     QStackedWidget *centerStack = nullptr;
     QButtonGroup *buttonGroup = nullptr;
@@ -213,8 +229,14 @@ private:
     bool isTracking = false;
     bool isEnhancing = false;
     int currentEnhancementLevel = 0; // 当前强化等级 (0表示未开始)
-    HWND targetWindow = nullptr; // 游戏窗口
-    HWND hallWindow = nullptr;   // 大厅窗口
+    HWND hwndGame = nullptr; // 游戏窗口
+    HWND hwndHall = nullptr;   // 大厅窗口
+    HWND hwndServer = nullptr; // 选服窗口
+    
+    // 全局位图数据
+    UINT32* globalPixelData = nullptr;
+    int globalBitmapWidth = 0;
+    int globalBitmapHeight = 0;
 
     QString defaultBgPath = ":/items/background/default.png";
     QString customBgPath = "";
