@@ -272,23 +272,11 @@ int CardRecognizer::recognizeCardLevel(const cv::Mat& cardMat)
     for (int level = 1; level <= 16; ++level) {
         QString levelStr = QString::number(level);
         
-        // if (!m_levelTemplates.contains(levelStr)) {
-        //     qWarning() << "Level template not found:" << levelStr;
-        //     continue;
-        // }
-        
         const QImage& templateImg = m_levelTemplates[levelStr];
         
         // 转换模板为cv::Mat
         cv::Mat templateMat = qImageToCvMat(templateImg);
         
-        // 确保尺寸匹配
-        // if (templateMat.rows != levelRoi.rows || templateMat.cols != levelRoi.cols) {
-        //     qWarning() << "Template size mismatch for level" << levelStr 
-        //               << "Template:" << templateMat.rows << "x" << templateMat.cols
-        //               << "ROI:" << levelRoi.rows << "x" << levelRoi.cols;
-        //     continue;
-        // }
 
         // 计算图像哈希匹配度
         cv::Mat levelHash = CardTemplateManager::computeHash(levelRoi);

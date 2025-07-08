@@ -51,7 +51,7 @@ StarryCard::StarryCard(QWidget *parent)
     : QMainWindow(parent)
 {
     // 设置DPI感知
-    DPI = SetDPIAware();
+    DPI = getDPIFromDC();
 
     // 设置窗口属性
     setWindowTitle("星空强卡器");
@@ -419,8 +419,8 @@ void StarryCard::setupUI()
     handleLayout->addWidget(windowTitleLabel);
     rightLayout->addLayout(handleLayout);
 
-    // 添加截图识别按钮
-    captureBtn = new QPushButton("截图识别", rightWidget);
+    // 添加调试按钮
+    captureBtn = new QPushButton("开始调试", rightWidget);
     captureBtn->setFixedSize(100, 30);
     captureBtn->setEnabled(false); // 初始状态禁用
     captureBtn->setStyleSheet(R"(
@@ -783,7 +783,7 @@ void StarryCard::stopMouseTracking() {
         hwndGame = nullptr;
         updateHandleDisplay(nullptr);
         
-        // 禁用截图识别按钮
+        // 禁用调试按钮
         if (captureBtn) {
             captureBtn->setEnabled(false);
         }
@@ -800,7 +800,7 @@ void StarryCard::stopMouseTracking() {
         hwndGame = nullptr;
         updateHandleDisplay(hwnd);
         
-        // 禁用截图识别按钮
+        // 禁用调试按钮
         if (captureBtn) {
             captureBtn->setEnabled(false);
         }
@@ -818,7 +818,7 @@ void StarryCard::stopMouseTracking() {
     hwndHall = GetHallWindow(hwnd); // 大厅窗口
     updateHandleDisplay(hwnd);
     
-    // 启用截图识别按钮
+    // 启用调试按钮
     if (captureBtn) {
         captureBtn->setEnabled(true);
     }
@@ -1026,10 +1026,10 @@ void StarryCard::updateHandleDisplay(HWND hwnd) {
         return;
     }
 
-    // 找到截图识别按钮并更新其状态
+    // 找到调试按钮并更新其状态
     QList<QPushButton*> buttons = findChildren<QPushButton*>();
     for (QPushButton* btn : buttons) {
-        if (btn->text() == "截图识别") {
+        if (btn->text() == "开始调试") {
             btn->setEnabled(hwnd != nullptr);
             break;
         }
@@ -1039,7 +1039,7 @@ void StarryCard::updateHandleDisplay(HWND hwnd) {
         QString title = WindowUtils::getWindowTitle(hwndHall); // 获取大厅窗口标题
         handleDisplayEdit->setText(QString::number(reinterpret_cast<quintptr>(hwnd), 10)); // 显示游戏窗口句柄
         windowTitleLabel->setText(title);
-        addLog(QString("已绑定窗口：%1").arg(title), LogType::Success);
+        addLog(QString("已绑定窗口：%1，句柄：%2").arg(title).arg(QString::number(reinterpret_cast<quintptr>(hwnd), 10)), LogType::Success);
     } else {
         handleDisplayEdit->setText("未获取到句柄");
         windowTitleLabel->setText("");
@@ -1127,12 +1127,21 @@ void StarryCard::updateCurrentBgLabel()
     currentBgLabel->setText(bgName);
 }
 
-int StarryCard::SetDPIAware()
+int StarryCard::getDPIFromDC()
 {
-    int screenWidthBeforeAware = GetSystemMetrics(SM_CXSCREEN);
-    SetProcessDPIAware(); // 设置进程DPI感知
-    int screenWidthAfterAware = GetSystemMetrics(SM_CXSCREEN);
-    return int(96 * double(screenWidthAfterAware) / screenWidthBeforeAware + 0.5); // 获取DPI值
+    // int screenWidthBeforeAware = GetSystemMetrics(SM_CXSCREEN);
+    // SetProcessDPIAware(); // 设置进程DPI感知
+    // int screenWidthAfterAware = GetSystemMetrics(SM_CXSCREEN);
+    // return int(96 * double(screenWidthAfterAware) / screenWidthBeforeAware + 0.5); // 获取DPI值
+    // 获取DPI缩放因子 - 使用更精确的方法
+    HDC hdc = GetDC(GetDesktopWindow());
+    
+    int dpi = 96;  // 默认DPI
+    if (hdc) {
+        dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+        ReleaseDC(GetDesktopWindow(), hdc);
+    }
+    return dpi;
 }
 
 QImage StarryCard::captureGameWindow()
@@ -4136,22 +4145,23 @@ void StarryCard::updateRecipeCombo()
     addLog(QString("配方选择下拉框已更新，可用配方: %1").arg(availableRecipes.join(", ")), LogType::Info);
 }
 
+// 发送鼠标消息,计算DPI缩放
 BOOL StarryCard::leftClickDPI(HWND hwnd, int x, int y)
 {
     // 获取DPI缩放因子 - 使用更精确的方法
-    HDC hdc = GetDC(hwnd);  // 获取目标窗口的设备上下文
-    if (!hdc) {
-        // 如果获取失败，使用桌面的设备上下文
-        hdc = GetDC(GetDesktopWindow());
-    }
+    // HDC hdc = GetDC(hwnd);  // 获取目标窗口的设备上下文
+    // if (!hdc) {
+    //     // 如果获取失败，使用桌面的设备上下文
+    //     hdc = GetDC(GetDesktopWindow());
+    // }
     
-    int dpi = 96;  // 默认DPI
-    if (hdc) {
-        dpi = GetDeviceCaps(hdc, LOGPIXELSX);
-        ReleaseDC(hwnd, hdc);
-    }
+    // int dpi = 96;  // 默认DPI
+    // if (hdc) {
+    //     dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+    //     ReleaseDC(hwnd, hdc);
+    // }
     
-    double scaleFactor = static_cast<double>(dpi) / 96.0;
+    double scaleFactor = static_cast<double>(DPI) / 96.0;
     
     // 计算DPI缩放后的坐标
     int scaledX = static_cast<int>(x * scaleFactor);
@@ -4161,6 +4171,25 @@ BOOL StarryCard::leftClickDPI(HWND hwnd, int x, int y)
     BOOL bResult = PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(scaledX, scaledY));
     PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(scaledX, scaledY));
     return bResult;
+}
+
+// 发送鼠标消息,不计算缩放
+BOOL StarryCard::leftClick(HWND hwnd, int x, int y)
+{
+    // 发送鼠标消息
+    BOOL bResult = PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+    PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
+    return bResult;
+}
+
+void StarryCard::sleepByQElapsedTimer(int ms)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < ms)
+    {
+        QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
+    }
 }
 
 // 检测颜色是否符合指定游戏平台的特征颜色
@@ -4275,7 +4304,7 @@ BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& 
     int pixelCount = width * height;
     globalPixelData = new(std::nothrow) COLORREF[pixelCount];
     if (!globalPixelData) {
-        addLog("分配像素数据内存失败", LogType::Error);
+        qDebug() << "分配像素数据内存失败";
         SelectObject(hdcMem, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMem);
@@ -4320,7 +4349,7 @@ BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& 
     DeleteDC(hdcMem);
     ReleaseDC(hwnd, hdcWindow);
     
-    addLog(QString("成功获取窗口位图：%1x%2，像素格式：0x00RRGGBB").arg(width).arg(height), LogType::Success);
+    addLog(QString("成功获取窗口位图：%1x%2").arg(width).arg(height), LogType::Success);
     return TRUE;
 }
 
@@ -4386,12 +4415,7 @@ int StarryCard::waitServerInWindow(int *px, int *py)
         addLog(QString("第%1次识别未找到匹配的平台，等待1秒后重试...").arg(times), LogType::Warning);
         
         // 使用Qt事件循环进行安全延时，保持界面响应
-        QElapsedTimer timer;
-        timer.start();
-        while (timer.elapsed() < 1000)
-        {                                      // 等待时间流逝 1 秒钟
-            QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
-        }
+        sleepByQElapsedTimer(1000);
     }
     
     addLog("等待选服窗口超时，所有尝试均失败", LogType::Error);
@@ -4407,8 +4431,8 @@ int StarryCard::findLatestServer(int platformType, int *px, int *py)
     }
     
     // 验证大厅窗口
-    if (!hwndHall || !IsWindow(hwndHall)) {
-        addLog("大厅窗口句柄无效", LogType::Error);
+    if (!IsWindowVisible(hwndHall)) {
+        addLog("大厅窗口异常，无法进行服务器识别", LogType::Error);
         return -1;
     }
     
@@ -4435,8 +4459,6 @@ int StarryCard::findLatestServer(int platformType, int *px, int *py)
             break;
         case 3: // QQ大厅
         case 4: // 纯白色检验（QQ空间登录界面）
-            width = 220; height = 50;
-            break;
         case 5: // 断网界面
             width = 220; height = 50;
             break;
@@ -4459,8 +4481,8 @@ int StarryCard::findLatestServer(int platformType, int *px, int *py)
             if (result == platformType) {
                 *px = x;
                 *py = y;
-                addLog(QString("找到平台类型%1的色块：位置(%2,%3)，尺寸(%4x%5)")
-                       .arg(platformType).arg(x).arg(y).arg(width).arg(height), LogType::Success);
+                // addLog(QString("找到平台类型%1的色块：位置(%2,%3)，尺寸(%4x%5)")
+                //        .arg(platformType).arg(x).arg(y).arg(width).arg(height), LogType::Success);
                 return platformType;
             }
             
@@ -4599,21 +4621,11 @@ void StarryCard::refreshGameWindow()
             return;
         }
 
-        QElapsedTimer timer;
-        timer.start();
-        while (timer.elapsed() < 200)
-        {                                      // 等待时间流逝 0.2 秒钟
-            QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
-        }
+        sleepByQElapsedTimer(200);
     }
     addLog("刷新成功", LogType::Success);
 
-    QElapsedTimer timer;
-    timer.start();
-    while (timer.elapsed() < 1000)
-    {                                      // 等待时间流逝 1 秒钟
-        QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
-    }
+    sleepByQElapsedTimer(1000);
 
     hwndServer = getActiveServerWindow(hwndHall);
     if (!hwndServer) {
@@ -4695,31 +4707,67 @@ void StarryCard::refreshGameWindow()
     int x = 0;
     int y = 0;
     int platformType = waitServerInWindow(&x, &y);
-    
-    if(platformType == -1) {
-        addLog("刷新测试失败：无法识别服务器窗口", LogType::Error);
+
+    //根据平台和大厅判定坐标确定最近服务器在选服窗口中的坐标
+    int latestServerX = 0, latestServerY = 0;//最近服务器在选服窗口中的坐标
+
+    if (platformType == -1)
+    {
+        addLog("无法识别服务器窗口", LogType::Error);
         return;
     }
-    else if(platformType == 0) {
-        addLog("刷新测试完成：找到微端窗口，无需选服", LogType::Success);
+    else if (platformType == 0)
+    {
+        addLog("找到微端窗口，无需选服", LogType::Success);
+    }
+    else if (platformType == 1)
+    {
+        latestServerX = (x - 285) * DPI / 96 + rectHall.left - rectServer.left;
+        latestServerY = (y + 45) * DPI / 96 + rectHall.top - rectServer.top;
+        addLog(QString("找到4399的选服窗口，位置(%2,%3)").arg(latestServerX).arg(latestServerY), LogType::Success);
+    }
+    else if (platformType == 2)
+    {
+        latestServerX = (rectServer.right - rectServer.left) / 2 - 115 * DPI / 96; // 中央位置左偏115
+        latestServerY = 267 * DPI / 96;
+        addLog(QString("找到QQ空间的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
+    }
+    else if (platformType == 3)
+    {
+        latestServerX = (rectServer.right - rectServer.left) / 2 + 30 * DPI / 96; // 中央位置右偏30
+        latestServerY = 580 * DPI / 96;
+        addLog(QString("找到QQ大厅的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
+    }
+    else
+    {
+        addLog("未知的平台类型", LogType::Warning);
         return;
     }
-    else if(platformType == 1) {
-        addLog(QString("刷新测试完成：找到4399的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
-        return;
+
+    hwndGame = nullptr; // 刷新后重新获取游戏窗口
+    counter = 0;
+    while(hwndGame == nullptr) //每1000ms获取1次游戏窗口
+    {
+        counter++;
+        if (counter > 10)
+        {
+            qDebug() << "无法进入服务器";
+            break;
+        }
+        if(platformType >= 1 && platformType <= 3) // 1为4399，2为QQ空间，3为QQ大厅,需要点击最近服务器位置
+        {
+            leftClick(hwndServer, latestServerX, latestServerY);
+            qDebug() << "点击选服窗口，位置:" << latestServerX << "," << latestServerY;
+        }
+        sleepByQElapsedTimer(1000);
+        hwndGame = getActiveGameWindow(hwndHall);
+        if (hwndGame)
+        {
+            qDebug() << "找到游戏窗口:" << hwndGame;
+            break;
+        }
     }
-    else if(platformType == 2) {
-        addLog(QString("刷新测试完成：找到QQ空间的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
-        return;
-    }
-    else if(platformType == 3) {
-        addLog(QString("刷新测试完成：找到QQ大厅的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
-        return;
-    }
-    else {
-        addLog("刷新测试完成：未知的平台类型", LogType::Warning);
-        return;
-    }
+    updateHandleDisplay(hwndGame);
 }
 
 #include "starrycard.moc"

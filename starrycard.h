@@ -120,7 +120,7 @@ private slots:
     void stopEnhancement();
     void performEnhancement();
     void addLog(const QString& message, LogType type = LogType::Info);
-    int SetDPIAware();
+    int getDPIFromDC();
     void onCaptureAndRecognize();
     void onEnhancementConfigChanged();
     void saveEnhancementConfig();
@@ -189,6 +189,10 @@ private:
     
     // 鼠标点击相关方法
     BOOL leftClickDPI(HWND hwnd, int x, int y);
+    BOOL leftClick(HWND hwnd, int x, int y);
+
+    // 任务延时
+    void sleepByQElapsedTimer(int ms);
     
     // 窗口位图获取方法
     BOOL getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& pixelData);
