@@ -178,13 +178,7 @@ private:
     bool isPageAtTop();
     bool isPageAtBottom();
 
-    // 配方识别相关方法
-    bool loadRecipeTemplates();
-    QPair<QString, double> recognizeRecipe(const QImage& recipeArea);
-    QVector<double> calculateRecipeHistogram(const QImage& image);
-    QList<QPair<QPoint, double>> findBestMatchesInGrid(const QImage& recipeArea, const QString& targetRecipe);
-    void recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe);
-    void recognizeRecipeWithPaging(const QImage& screenshot, const QString& targetRecipe);
+    // 配方识别相关方法（已迁移到 RecipeRecognizer）
     QStringList getAvailableRecipeTypes() const; // 获取所有可用的配方类型
     
     // 鼠标点击相关方法
@@ -201,10 +195,7 @@ private:
     BOOL isGamePlatformColor(COLORREF color, int platformType);
     int recognizeBitmapRegionColor(int platformType, COLORREF *pHallShot[4320], const QRect& region);
 
-    // 配方模板数据
-    QHash<QString, QVector<double>> recipeTemplateHistograms;
-    QHash<QString, QImage> recipeTemplateImages;
-    bool recipeTemplatesLoaded = false;
+    // 配方模板数据（已迁移到 RecipeRecognizer）
 
     // 寻找游戏窗口相关方法
     HWND getGameWindow(HWND hwndHall);
