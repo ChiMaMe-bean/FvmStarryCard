@@ -18,16 +18,19 @@
 #include <QJsonObject>
 #include <QDebug>
 #include <QMouseEvent>
+#include <QThread>
+#include <QTime>
+#include <QElapsedTimer>
 #include <Windows.h>  // 包含 Windows.h 头文件，用于获取屏幕分辨率
 #include <cstring>
 
-// BGR颜色分量提取宏定义(rgb为0x00RRGGBB类型)
-#define bgrRValue(rgb)      (LOBYTE((rgb)>>16))
-#define bgrGValue(rgb)      (LOBYTE(((WORD)(rgb)) >> 8))
-#define bgrBValue(rgb)      (LOBYTE(rgb))
+// RGB颜色分量提取宏定义(rgb为0x00RRGGBB类型)
+#define bgrRValue(rgb)      (LOBYTE((rgb)>>16))  // 红色分量
+#define bgrGValue(rgb)      (LOBYTE(((WORD)(rgb)) >> 8))  // 绿色分量
+#define bgrBValue(rgb)      (LOBYTE(rgb))  // 蓝色分量
 #include <QTimer>
+#include <QEventLoop>
 #include <QMessageBox>
-#include <QTime>
 #include <QTextEdit>
 #include <QScreen>
 #include <QWindow>
@@ -733,7 +736,7 @@ HWND StarryCard::getGameWindow(HWND hWndChild) {
     // 查找四级子窗口
     HWND hWnd4 = FindWindowEx(hWnd3, nullptr, L"WrapperNativeWindowClass", nullptr);
     if (!hWnd4) {
-        qDebug() << "Failed to find WrapperNativeWindowClass child window";
+        qDebug() << "Failed to find WrapperNativeWindowClass child window at time " << QTime::currentTime().toString("hh:mm:ss");
         return nullptr;
     }
 
@@ -754,7 +757,7 @@ HWND StarryCard::getActiveGameWindow(HWND hwndHall) {
         // 查找一个小号窗口
         hWndChild = FindWindowEx(hwndHall, hWndChild, L"TabContentWnd", nullptr);
         if (!hWndChild) {
-            qDebug() << "No more TabContentWnd child windows found";
+            qDebug() << "No more TabContentWnd child windows found at " << QTime::currentTime().toString("hh:mm:ss");
             return nullptr; // 没有小号窗口了，还没找到活跃窗口，就返回NULL
         }
 
@@ -1214,6 +1217,94 @@ QImage StarryCard::captureGameWindow()
     ReleaseDC(hwndGame, hdcWindow);
 
     addLog(QString("成功截取窗口图像：%1x%2").arg(width).arg(height), LogType::Success);
+    return image;
+}
+
+QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
+{
+    if (!hwnd || !IsWindow(hwnd)) {
+        addLog(QString("无效的窗口句柄: %1").arg(windowName), LogType::Error);
+        return QImage();
+    }
+
+    // 获取窗口位置和大小
+    RECT rect;
+    if (!GetWindowRect(hwnd, &rect)) {
+        addLog(QString("获取窗口位置失败: %1").arg(windowName), LogType::Error);
+        return QImage();
+    }
+
+    // 输出窗口信息
+    addLog(QString("%1窗口位置：(%2, %3) - (%4, %5)").arg(windowName).arg(rect.left).arg(rect.top).arg(rect.right).arg(rect.bottom), LogType::Info);
+    
+    // 获取窗口DC
+    HDC hdcWindow = GetDC(hwnd);
+    if (!hdcWindow) {
+        addLog(QString("获取窗口DC失败: %1").arg(windowName), LogType::Error);
+        return QImage();
+    }
+
+    // 创建兼容DC和位图
+    HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
+    if (!hdcMemDC) {
+        addLog(QString("创建兼容DC失败: %1").arg(windowName), LogType::Error);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
+    
+    HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
+    if (!hBitmap) {
+        addLog(QString("创建兼容位图失败: %1").arg(windowName), LogType::Error);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMemDC, hBitmap);
+
+    // 复制窗口内容到位图
+    if (!BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY)) {
+        addLog(QString("复制窗口内容失败: %1").arg(windowName), LogType::Error);
+        SelectObject(hdcMemDC, hOldBitmap);
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    // 转换为QImage
+    QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+    
+    // 设置BITMAPINFO结构
+    BITMAPINFO bmi;
+    ZeroMemory(&bmi, sizeof(BITMAPINFO));
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height; // 负值表示自上而下的位图
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    // 获取位图数据
+    if (!GetDIBits(hdcMemDC, hBitmap, 0, height, image.bits(), &bmi, DIB_RGB_COLORS)) {
+        addLog(QString("获取位图数据失败: %1").arg(windowName), LogType::Error);
+        SelectObject(hdcMemDC, hOldBitmap);
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    // 清理资源
+    SelectObject(hdcMemDC, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMemDC);
+    ReleaseDC(hwnd, hdcWindow);
+
+    addLog(QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height), LogType::Success);
     return image;
 }
 
@@ -4070,26 +4161,39 @@ BOOL StarryCard::leftClickDPI(HWND hwnd, int x, int y)
 // 检测颜色是否符合指定游戏平台的特征颜色
 BOOL StarryCard::isGamePlatformColor(COLORREF color, int platformType)
 {
-    color &= 0x00ffffff;
+    color &= 0x00ffffff;  // 确保只保留RGB分量
+    
+    BYTE r = bgrRValue(color);
+    BYTE g = bgrGValue(color);
+    BYTE b = bgrBValue(color);
+    
     switch (platformType)
     {
-    case 1: // 4399平台
-        return bgrRValue(color) >= 246 && bgrGValue(color) >= 240 && bgrBValue(color) >= 214 &&
-               bgrRValue(color) <= 255 && bgrGValue(color) <= 252 && bgrBValue(color) <= 226;
+    case 1: // 4399平台 - 浅黄色背景
+        return r >= 246 && r <= 255 &&
+               g >= 240 && g <= 252 &&
+               b >= 214 && b <= 226;
+               
     case 2: // QQ空间
-        return color == 0xfdffea;
-    case 3: // QQ大厅
-        return color == 0x3c3c3d;
-    case 4: // 纯白色检验，可能是QQ空间登录界面或4399还没加载出来
-        return color == 0xffffff;
-    case 5: // 断网界面
-        return bgrRValue(color) >= 211 && bgrGValue(color) >= 227 && bgrBValue(color) >= 236 &&
-               bgrRValue(color) <= 213 && bgrGValue(color) <= 229 && bgrBValue(color) <= 237;
+        // 目标颜色 0xfdffea (R=253, G=255, B=234)
+        return (r == 253) && (g == 255) && (b == 234);
+        
+    case 3: // QQ大厅 - 深灰色
+        // 目标颜色 0x3c3c3d (R=60, G=60, B=61)
+        return (r == 60) && (g == 60) && (b == 61);
+        
+    case 4: // 纯白色检验 - 接近白色的颜色
+        return (r == 255) && (g == 255) && (b == 255);
+        
+    case 5: // 断网界面 - 浅蓝灰色
+        return r >= 211 && r <= 213 &&
+               g >= 227 && g <= 229 &&
+               b >= 236 && b <= 237;
     }
-    return false;
+    return FALSE;
 }
 
-BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pixelData)
+BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& pixelData)
 {
     // 初始化输出参数
     width = 0;
@@ -4164,7 +4268,7 @@ BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pi
     
     // 分配全局像素数据内存
     int pixelCount = width * height;
-    globalPixelData = new(std::nothrow) UINT32[pixelCount];
+    globalPixelData = new(std::nothrow) COLORREF[pixelCount];
     if (!globalPixelData) {
         addLog("分配像素数据内存失败", LogType::Error);
         SelectObject(hdcMem, hOldBitmap);
@@ -4186,7 +4290,7 @@ BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pi
     // 获取位图像素数据
     int scanLines = GetDIBits(hdcMem, hBitmap, 0, height, globalPixelData, &bmi, DIB_RGB_COLORS);
     if (scanLines == 0) {
-        addLog("获取位图像素数据失败", LogType::Error);
+        qDebug() << "获取位图像素数据失败";
         delete[] globalPixelData;
         globalPixelData = nullptr;
         width = 0;
@@ -4197,6 +4301,8 @@ BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pi
         ReleaseDC(hwnd, hdcWindow);
         return FALSE;
     }
+    else
+        qDebug() << QString("获取位图像素数据成功,行数为%1").arg(scanLines);
     
     // 设置全局变量和输出参数
     globalBitmapWidth = width;
@@ -4213,119 +4319,267 @@ BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pi
     return TRUE;
 }
 
-int StarryCard::recognizeBitmapRegionColor(const QRect& region)
+//在大厅窗口中等待最近服务器出现，返回所属平台
+int StarryCard::waitServerInWindow(int *px, int *py)
 {
-    // 验证全局位图数据是否有效
-    if (!globalPixelData || globalBitmapWidth <= 0 || globalBitmapHeight <= 0) {
-        addLog("全局位图数据无效，请先调用getWindowBitmap获取位图", LogType::Error);
+    // 首先检查大厅窗口是否有效
+    if (!hwndHall || !IsWindow(hwndHall)) {
+        addLog("大厅窗口句柄无效，无法进行服务器识别", LogType::Error);
         return -1;
     }
     
-    // 验证矩形区域是否在位图范围内
-    if (region.left() < 0 || region.top() < 0 || 
-        region.right() >= globalBitmapWidth || region.bottom() >= globalBitmapHeight ||
-        region.width() <= 0 || region.height() <= 0) {
-        addLog(QString("指定区域超出位图范围：位图尺寸(%1x%2)，指定区域(%3,%4,%5,%6)")
-               .arg(globalBitmapWidth).arg(globalBitmapHeight)
-               .arg(region.left()).arg(region.top()).arg(region.right()).arg(region.bottom()), LogType::Error);
-        return -1;
-    }
+    addLog("开始等待选服窗口出现...", LogType::Info);
     
-    // 从平台类型1开始逐个测试到5
-    for (int platformType = 1; platformType <= 5; ++platformType) {
-        int matchCount = 0;
-        int totalPixels = 0;
-        
-        // 遍历指定矩形区域内的所有像素
-        for (int y = region.top(); y <= region.bottom(); ++y) {
-            for (int x = region.left(); x <= region.right(); ++x) {
-                // 计算像素在数组中的索引
-                int pixelIndex = y * globalBitmapWidth + x;
-                
-                // 获取像素颜色值（格式为0x00BBGGRR）
-                UINT32 pixelValue = globalPixelData[pixelIndex];
-                COLORREF color = (COLORREF)pixelValue;
-                
-                // 检测颜色是否匹配当前平台类型
-                if (isGamePlatformColor(color, platformType)) {
-                    matchCount++;
-                }
-                totalPixels++;
+    int times = 0;
+    while (times < 10) // 改为明确的条件，而不是while(true)
+    {
+        times++;
+        addLog(QString("第%1次尝试识别服务器窗口...").arg(times), LogType::Info);
+
+        // 首先检查是否有游戏窗口（微端情况）
+        if (getActiveGameWindow(hwndHall)) {
+            addLog("发现游戏窗口，识别为微端，无需选服", LogType::Success);
+            return 0;
+        }
+
+        // 依次查找4399、QQ空间、QQ大厅色块，找到直接返回
+        for (int platformType = 1; platformType <= 3; platformType++) {
+            int result = findLatestServer(platformType, px, py);
+            if (result == platformType) {
+                addLog(QString("找到选服窗口：平台类型%1").arg(platformType), LogType::Success);
+                return platformType;
+            }
+            // 如果findLatestServer返回-1，说明位图获取失败，提前退出
+            if (result == -1) {
+                addLog("位图获取失败，停止识别", LogType::Error);
+                return -1;
             }
         }
         
-        // 计算匹配率
-        double matchRate = (totalPixels > 0) ? (double)matchCount / totalPixels : 0.0;
+                 // 检查纯白色登录界面
+         int whiteResult = findLatestServer(4, px, py);
+         if (whiteResult == 4) {
+             addLog("检测到纯白色登录界面", LogType::Info);
+             return 4;
+         }
+         if (whiteResult == -1) {
+             addLog("位图获取失败，停止识别", LogType::Error);
+             return -1;
+         }
+         
+         // 检查断网界面
+         int disconnectResult = findLatestServer(5, px, py);
+         if (disconnectResult == 5) {
+             addLog("检测到断网界面", LogType::Warning);
+             return 5;
+         }
+         if (disconnectResult == -1) {
+             addLog("位图获取失败，停止识别", LogType::Error);
+             return -1;
+         }
+
+        addLog(QString("第%1次识别未找到匹配的平台，等待1秒后重试...").arg(times), LogType::Warning);
         
-        addLog(QString("平台类型%1颜色检测：匹配像素%2/%3，匹配率：%4%")
-               .arg(platformType).arg(matchCount).arg(totalPixels)
-               .arg(QString::number(matchRate * 100, 'f', 2)), LogType::Info);
-        
-        // 如果匹配率超过80%，认为识别成功
-        if (matchRate >= 0.8) {
-            QString platformName;
-            switch (platformType) {
-                case 1: platformName = "4399平台"; break;
-                case 2: platformName = "QQ空间"; break;
-                case 3: platformName = "QQ大厅"; break;
-                case 4: platformName = "纯白色（登录界面）"; break;
-                case 5: platformName = "断网界面"; break;
-                default: platformName = "未知平台"; break;
+        // 使用Qt事件循环进行安全延时，保持界面响应
+        QElapsedTimer timer;
+        timer.start();
+        while (timer.elapsed() < 1000)
+        {                                      // 等待时间流逝 1 秒钟
+            QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
+        }
+    }
+    
+    addLog("等待选服窗口超时，所有尝试均失败", LogType::Error);
+    return -1;
+}
+
+int StarryCard::findLatestServer(int platformType, int *px, int *py)
+{
+    // 验证输入参数
+    if (!px || !py) {
+        addLog("findLatestServer参数无效", LogType::Error);
+        return -1;
+    }
+    
+    // 验证大厅窗口
+    if (!hwndHall || !IsWindow(hwndHall)) {
+        addLog("大厅窗口句柄无效", LogType::Error);
+        return -1;
+    }
+    
+    int hallWidth = 0, hallHeight = 0; // 大厅窗口尺寸
+    if (!getWindowBitmap(hwndHall, hallWidth, hallHeight, globalPixelData)) {
+        addLog("获取大厅窗口位图失败", LogType::Error);
+        return -1; // 获取大厅窗口失败，返回-1表示错误
+    }
+
+    // 构造二级指针
+    COLORREF *pHallShot[4320]; //大厅截图二级指针，高度不超过8K分辨率4320
+    for (int i = 0; i < hallHeight; i++) {
+        pHallShot[i] = globalPixelData + i * hallWidth;
+    }
+
+    // 根据平台类型设置识别区域尺寸
+    int width, height;
+    switch (platformType) {
+        case 1: // 4399平台
+            width = 220; height = 135;
+            break;
+        case 2: // QQ空间
+            width = 210; height = 70;
+            break;
+        case 3: // QQ大厅
+        case 4: // 纯白色检验（QQ空间登录界面）
+            width = 220; height = 50;
+            break;
+        case 5: // 断网界面
+            width = 220; height = 50;
+            break;
+        default:
+            addLog(QString("不支持的平台类型：%1").arg(platformType), LogType::Error);
+            return 0;
+    }
+
+    int step = 2;   // 识图步长
+    
+    // 从右到左，从上到下扫描
+    int processCount = 0; // 计数器，用于定期处理事件
+    for (int x = hallWidth - width; x >= 0; x -= step) {
+        for (int y = 0; y <= hallHeight - height; y += step) {
+            // 创建当前扫描区域
+            QRect scanRegion(x, y, width, height);
+            
+            // 进行颜色识别
+            int result = recognizeBitmapRegionColor(platformType, pHallShot, scanRegion);
+            if (result == platformType) {
+                *px = x;
+                *py = y;
+                addLog(QString("找到平台类型%1的色块：位置(%2,%3)，尺寸(%4x%5)")
+                       .arg(platformType).arg(x).arg(y).arg(width).arg(height), LogType::Success);
+                return platformType;
             }
             
-            addLog(QString("成功识别为：%1（平台类型%2），匹配率：%3%")
-                   .arg(platformName).arg(platformType)
-                   .arg(QString::number(matchRate * 100, 'f', 2)), LogType::Success);
-            return platformType;
+            // 每处理100次循环就处理一次事件，保持UI响应
+            processCount++;
+            if (processCount % 100 == 0) {
+                QCoreApplication::processEvents();
+                // 可选：检查是否需要中断扫描（比如用户取消操作）
+            }
         }
     }
+
+    addLog(QString("未找到平台类型%1的色块").arg(platformType), LogType::Warning);
+    return 0; // 未找到
+}
+
+int StarryCard::recognizeBitmapRegionColor(int platformType, COLORREF *pHallShot[4320], const QRect& region)
+{
+    int step = 2;
     
-    // 所有平台类型都未匹配成功
-    addLog("未能识别出匹配的平台类型", LogType::Warning);
-    return 0;  // 返回0表示未识别成功
+    // 遍历指定矩形区域内的所有像素，使用绝对坐标
+    for (int x = region.width() - 1; x >= 0; x -= step)
+    {
+        for (int y = 0; y < region.height(); y += step)
+        {
+            // 检测颜色是否匹配当前平台类型
+            if (!isGamePlatformColor(pHallShot[region.y() + y][region.x() + x], platformType))
+            {
+                return 0; // 返回0表示未识别成功
+            }
+        }
+    }
+
+    return platformType;  // 返回识别成功
 }
 
 //找到一个小号子窗口下唯一的选服窗口
 HWND StarryCard::getServerWindow(HWND hWndChild)
 {
-    HWND hWnd1 = FindWindowEx(hWndChild, nullptr, L"CefBrowserWindow", nullptr); // 一级子窗口
-    if (hWnd1 == nullptr)
+    // 验证输入参数
+    if (!hWndChild || !IsWindow(hWndChild)) {
         return nullptr;
-    HWND hWnd2 = FindWindowEx(hWnd1, nullptr, L"Chrome_WidgetWin_0", nullptr); // 二级子窗口
-    if (hWnd2 == nullptr)
+    }
+    
+    // 查找一级子窗口
+    HWND hWnd1 = FindWindowEx(hWndChild, nullptr, L"CefBrowserWindow", nullptr);
+    if (hWnd1 == nullptr || !IsWindow(hWnd1)) {
         return nullptr;
-    return FindWindowEx(hWnd2, nullptr, L"Chrome_RenderWidgetHostHWND", nullptr); // 三级子窗口
+    }
+    
+    // 查找二级子窗口
+    HWND hWnd2 = FindWindowEx(hWnd1, nullptr, L"Chrome_WidgetWin_0", nullptr);
+    if (hWnd2 == nullptr || !IsWindow(hWnd2)) {
+        return nullptr;
+    }
+    
+    // 查找三级子窗口（选服窗口）
+    HWND hWndServer = FindWindowEx(hWnd2, nullptr, L"Chrome_RenderWidgetHostHWND", nullptr);
+    if (hWndServer && IsWindow(hWndServer)) {
+        return hWndServer;
+    }
+    
+    return nullptr;
 }
 
 //找到游戏大厅当前显示的选服窗口，找不到返回nullptr
 HWND StarryCard::getActiveServerWindow(HWND hWndHall)
 {
+    // 验证输入参数
+    if (!hWndHall || !IsWindow(hWndHall)) {
+        addLog("传入的大厅窗口句柄无效", LogType::Error);
+        return nullptr;
+    }
+    
     wchar_t className[256];
-    GetClassNameW(hWndHall, className, 256);                 // 获取窗口类名
-    if (wcscmp(className, L"ApolloRuntimeContentWindow") == 0) // 如果是微端窗口，直接返回
-    {
+    if (!GetClassNameW(hWndHall, className, 256)) {
+        addLog("无法获取窗口类名", LogType::Error);
+        return nullptr;
+    }
+    
+    // 如果是微端窗口，直接返回
+    if (wcscmp(className, L"ApolloRuntimeContentWindow") == 0) {
         addLog("找到微端窗口", LogType::Success);
         return hWndHall; //微端的选服窗口就是微端窗口
     }
-    if (wcscmp(className, L"DUIWindow") != 0) // 不是微端也不是大厅窗口
+    
+    // 不是微端也不是大厅窗口
+    if (wcscmp(className, L"DUIWindow") != 0) {
+        addLog(QString("不支持的窗口类型：%1").arg(QString::fromWCharArray(className)), LogType::Warning);
         return nullptr;
-    // 判断为游戏大厅窗口
-    addLog("找到大厅窗口，窗口名：" + QString(className), LogType::Success);
-    HWND hWndChild = nullptr, hWndServer = nullptr;
-    while (true)
-    {
-        hWndChild = FindWindowEx(hWndHall, hWndChild, L"TabContentWnd", nullptr); // 查找一个小号窗口
-        if (hWndChild == nullptr)
-            return nullptr; // 没有小号窗口了，还没找到活跃窗口，就返回nullptr
-        hWndServer = getServerWindow(hWndChild);
-        if (hWndServer != nullptr)
-            return hWndServer;
     }
+    
+    // 判断为游戏大厅窗口
+    addLog("找到大厅窗口，窗口名：" + QString::fromWCharArray(className), LogType::Success);
+    
+    HWND hWndChild = nullptr, hWndServer = nullptr;
+    int searchCount = 0;
+    const int maxSearchCount = 10; // 最多搜索10个Tab窗口
+    
+    while (searchCount < maxSearchCount) {
+        hWndChild = FindWindowEx(hWndHall, hWndChild, L"TabContentWnd", nullptr); // 查找一个小号窗口
+        if (hWndChild == nullptr) {
+            addLog(QString("搜索了%1个Tab窗口，未找到有效的选服窗口").arg(searchCount), LogType::Info);
+            return nullptr; // 没有小号窗口了，还没找到活跃窗口，就返回nullptr
+        }
+        
+        searchCount++;
+        addLog(QString("正在检查第%1个Tab窗口...").arg(searchCount), LogType::Info);
+        
+        hWndServer = getServerWindow(hWndChild);
+        if (hWndServer != nullptr) {
+            addLog(QString("在第%1个Tab窗口中找到选服窗口").arg(searchCount), LogType::Success);
+            return hWndServer;
+        }
+    }
+    
+    addLog(QString("已搜索%1个Tab窗口，未找到有效的选服窗口").arg(maxSearchCount), LogType::Warning);
+    return nullptr;
 }
 
 void StarryCard::refreshGameWindow()
 {
     HWND hwndOrigin = getActiveGameWindow(hwndHall);
+    addLog(QString("刷新前游戏窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndOrigin), 10)), LogType::Success);
 
     // 点击刷新按钮
     clickRefresh();
@@ -4339,25 +4593,128 @@ void StarryCard::refreshGameWindow()
             addLog("刷新失败，点击刷新按钮无效", LogType::Error);
             return;
         }
-        Sleep(100);
+
+        QElapsedTimer timer;
+        timer.start();
+        while (timer.elapsed() < 200)
+        {                                      // 等待时间流逝 0.2 秒钟
+            QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
+        }
     }
     addLog("刷新成功", LogType::Success);
 
-    Sleep(500); // 刷新成功等待1秒，防止游戏窗口还没加载出来
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < 1000)
+    {                                      // 等待时间流逝 1 秒钟
+        QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
+    }
 
     hwndServer = getActiveServerWindow(hwndHall);
-    addLog(QString("找到选服窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndServer), 10)), LogType::Success);
+    if (!hwndServer) {
+        addLog("未找到选服窗口，可能是微端或窗口已关闭", LogType::Warning);
+        // 继续执行后续识别，不需要矩形信息
+    } else {
+        addLog(QString("找到选服窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndServer), 10)), LogType::Success);
+        
+        // 验证选服窗口是否有效
+        if (!IsWindow(hwndServer)) {
+            addLog("选服窗口句柄无效", LogType::Error);
+            hwndServer = nullptr;
+        }
+    }
 
-    int serverWidth, serverHeight;
-    RECT rectHall;
-    GetWindowRect(hwndHall, &rectHall);
-    RECT rectServer;
-    GetWindowRect(hwndServer, &rectServer);
-    serverWidth = rectServer.right - rectServer.left;
-    serverHeight = rectServer.bottom - rectServer.top;
+    int serverWidth = 0, serverHeight = 0;
+    RECT rectHall = {0};
+    RECT rectServer = {0};
+    
+    // 安全地获取大厅窗口矩形
+    if (!GetWindowRect(hwndHall, &rectHall)) {
+        addLog("获取大厅窗口矩形失败", LogType::Error);
+    }
+    
+    // 只有当选服窗口有效时才获取其矩形
+    if (hwndServer && IsWindow(hwndServer)) {
+        if (GetWindowRect(hwndServer, &rectServer)) {
+            serverWidth = rectServer.right - rectServer.left;
+            serverHeight = rectServer.bottom - rectServer.top;
+            addLog(QString("选服窗口尺寸：%1x%2").arg(serverWidth).arg(serverHeight), LogType::Info);
+        } else {
+            addLog("获取选服窗口矩形失败", LogType::Warning);
+        }
+    }
 
-    int x = rectServer.left - rectHall.left;
-    int y = rectServer.top - rectHall.top;
+    // 添加截图功能：分别截取大厅窗口和选服窗口的图片
+    addLog("开始截取窗口图片...", LogType::Info);
+    
+    // 确保screenshots文件夹存在
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString screenshotsDir = appDir + "/screenshots";
+    QDir dir(screenshotsDir);
+    if (!dir.exists()) {
+        if (!dir.mkpath(screenshotsDir)) {
+            addLog("创建screenshots文件夹失败", LogType::Error);
+        } else {
+            addLog("创建screenshots文件夹成功", LogType::Info);
+        }
+    }
+    
+    // 截取大厅窗口
+    if (hwndHall && IsWindow(hwndHall)) {
+        QImage hallImage = captureWindowByHandle(hwndHall, "大厅");
+        if (!hallImage.isNull()) {
+            QString hallFilename = QString("%1/Ahall_window.png").arg(screenshotsDir);
+            if (hallImage.save(hallFilename)) {
+                addLog(QString("大厅窗口截图保存成功：%1").arg(hallFilename), LogType::Success);
+            } else {
+                addLog("大厅窗口截图保存失败", LogType::Error);
+            }
+        }
+    }
+    
+    // 截取选服窗口
+    if (hwndServer && IsWindow(hwndServer)) {
+        QImage serverImage = captureWindowByHandle(hwndServer, "选服");
+        if (!serverImage.isNull()) {
+            QString serverFilename = QString("%1/Aserver_window.png").arg(screenshotsDir);
+            if (serverImage.save(serverFilename)) {
+                addLog(QString("选服窗口截图保存成功：%1").arg(serverFilename), LogType::Success);
+            } else {
+                addLog("选服窗口截图保存失败", LogType::Error);
+            }
+        }
+    } else {
+        addLog("选服窗口无效，跳过截图", LogType::Warning);
+    }
+
+    int x = 0;
+    int y = 0;
+    int platformType = waitServerInWindow(&x, &y);
+    
+    if(platformType == -1) {
+        addLog("刷新测试失败：无法识别服务器窗口", LogType::Error);
+        return;
+    }
+    else if(platformType == 0) {
+        addLog("刷新测试完成：找到微端窗口，无需选服", LogType::Success);
+        return;
+    }
+    else if(platformType == 1) {
+        addLog(QString("刷新测试完成：找到4399的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
+        return;
+    }
+    else if(platformType == 2) {
+        addLog(QString("刷新测试完成：找到QQ空间的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
+        return;
+    }
+    else if(platformType == 3) {
+        addLog(QString("刷新测试完成：找到QQ大厅的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
+        return;
+    }
+    else {
+        addLog("刷新测试完成：未知的平台类型", LogType::Warning);
+        return;
+    }
 }
 
 #include "starrycard.moc"

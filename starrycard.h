@@ -146,6 +146,7 @@ private:
     void setupUI();
     void updateCurrentBgLabel();
     QImage captureGameWindow();
+    QImage captureWindowByHandle(HWND hwnd, const QString& windowName = "");
     void showRecognitionResults(const std::vector<CardInfo>& results);
     QWidget* createEnhancementConfigPage();
     int getMinSubCardLevel(int enhancementLevel);
@@ -189,11 +190,11 @@ private:
     BOOL leftClickDPI(HWND hwnd, int x, int y);
     
     // 窗口位图获取方法
-    BOOL getWindowBitmap(HWND hwnd, int& width, int& height, UINT32*& pixelData);
+    BOOL getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& pixelData);
     
     // 颜色识别相关方法
     BOOL isGamePlatformColor(COLORREF color, int platformType);
-    int recognizeBitmapRegionColor(const QRect& region);
+    int recognizeBitmapRegionColor(int platformType, COLORREF *pHallShot[4320], const QRect& region);
 
     // 配方模板数据
     QHash<QString, QVector<double>> recipeTemplateHistograms;
@@ -206,6 +207,8 @@ private:
     // 寻找选服窗口相关方法
     HWND getServerWindow(HWND hwndChild);
     HWND getActiveServerWindow(HWND hwndHall);
+    int waitServerInWindow(int *px = nullptr, int *py = nullptr);
+    int findLatestServer(int platformType, int *px, int *py);
     void refreshGameWindow();
 
     QStackedWidget *centerStack = nullptr;
@@ -234,7 +237,7 @@ private:
     HWND hwndServer = nullptr; // 选服窗口
     
     // 全局位图数据
-    UINT32* globalPixelData = nullptr;
+    COLORREF* globalPixelData = nullptr;
     int globalBitmapWidth = 0;
     int globalBitmapHeight = 0;
 
