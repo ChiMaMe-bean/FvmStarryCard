@@ -173,6 +173,14 @@ private:
     bool recognizeSingleClover(const QImage& cloverImage, const QString& cloverType, int positionX, int positionY, 
                                bool clover_bound, bool clover_unbound);
     
+    // 香料识别相关方法
+    bool loadSpiceTemplates();
+    QPair<bool, bool> recognizeSpice(const QString& spiceType, bool spice_bound, bool spice_unbound);
+    bool recognizeSingleSpice(const QImage& spiceImage, const QString& spiceType, int positionX, int positionY, 
+                              bool spice_bound, bool spice_unbound);
+    bool checkSpiceBindState(const QImage& spiceImage, bool spice_bound, bool spice_unbound, bool& actualBindState);
+    bool isSpiceBound(const QImage& spiceImage);
+    
     // 翻页检测相关方法
     bool loadPageTemplates();
     bool isPageAtTop();
@@ -251,6 +259,12 @@ private:
     QImage bindStateTemplate; // 绑定状态模板图像
     QString bindStateTemplateHash; // 绑定状态模板哈希值
     bool cloverTemplatesLoaded = false;
+    
+    // 香料识别相关数据
+    QHash<QString, QString> spiceTemplateHashes; // 香料类型名 -> 哈希值
+    QHash<QString, QImage> spiceTemplateImages; // 香料类型名 -> 模板图像
+    QHash<QString, QVector<double>> spiceTemplateHistograms; // 香料类型名 -> 颜色直方图
+    bool spiceTemplatesLoaded = false;
     
     // 翻页检测相关数据
     QImage pageUpTemplate;      // 翻页到顶部模板图像

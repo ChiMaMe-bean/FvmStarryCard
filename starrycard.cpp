@@ -103,6 +103,9 @@ StarryCard::StarryCard(QWidget *parent)
     loadBindStateTemplate();
     loadPageTemplates();
     
+    // 初始化香料识别模板
+    loadSpiceTemplates();
+    
     // 初始化 RecipeRecognizer
     recipeRecognizer = new RecipeRecognizer();
     
@@ -473,7 +476,7 @@ void StarryCard::setupUI()
     rightLayout->addWidget(debugLabel);
     
     debugCombo = new QComboBox();
-    debugCombo->addItems({"配方识别", "卡片识别", "四叶草识别", "刷新测试", "全部功能"});
+    debugCombo->addItems({"配方识别", "卡片识别", "四叶草识别", "香料识别", "刷新测试", "全部功能"});
     debugCombo->setCurrentText("配方识别"); // 设置默认选择
     debugCombo->setStyleSheet(R"(
         QComboBox {
@@ -1491,6 +1494,51 @@ void StarryCard::onCaptureAndRecognize()
             addLog("四叶草识别测试失败", LogType::Warning);
         }
         qDebug() << "=== 四叶草识别测试结束 ===";
+    }
+    
+    if (debugMode == "香料识别" || debugMode == "全部功能") {
+        // 执行香料识别功能
+        addLog("开始测试香料识别功能...", LogType::Info);
+        qDebug() << "=== 开始香料识别测试 ===";
+        
+        // 测试1: 找到不绑定的天然香料
+        addLog("测试1: 找到不绑定的天然香料", LogType::Info);
+        QPair<bool, bool> spiceResult1 = recognizeSpice("天然香料", false, true);
+        if (spiceResult1.first) {
+            addLog("成功识别到不绑定的天然香料", LogType::Success);
+        } else {
+            addLog("未找到不绑定的天然香料", LogType::Warning);
+        }
+        
+        // 测试2: 找到绑定的魔幻香料
+        addLog("测试2: 找到绑定的魔幻香料", LogType::Info);
+        QPair<bool, bool> spiceResult2 = recognizeSpice("魔幻香料", true, false);
+        if (spiceResult2.first) {
+            addLog("成功识别到绑定的魔幻香料", LogType::Success);
+        } else {
+            addLog("未找到绑定的魔幻香料", LogType::Warning);
+        }
+        
+        // 测试3: 找到不绑定的极品香料
+        addLog("测试3: 找到不绑定的极品香料", LogType::Info);
+        QPair<bool, bool> spiceResult3 = recognizeSpice("极品香料", false, true);
+        if (spiceResult3.first) {
+            addLog("成功识别到不绑定的极品香料", LogType::Success);
+        } else {
+            addLog("未找到不绑定的极品香料", LogType::Warning);
+        }
+        
+        // 测试4: 找到绑定的圣灵香料
+        addLog("测试4: 找到绑定的圣灵香料", LogType::Info);
+        QPair<bool, bool> spiceResult4 = recognizeSpice("圣灵香料", true, false);
+        if (spiceResult4.first) {
+            addLog("成功识别到绑定的圣灵香料", LogType::Success);
+        } else {
+            addLog("未找到绑定的圣灵香料", LogType::Warning);
+        }
+        
+        addLog("香料识别测试完成", LogType::Info);
+        qDebug() << "=== 香料识别测试结束 ===";
     }
 
     if (debugMode == "刷新测试" || debugMode == "全部功能") {
@@ -3564,6 +3612,268 @@ bool StarryCard::recognizeSingleClover(const QImage& cloverImage, const QString&
     }
     
     return false;
+}
+
+// ================== 香料识别功能实现 ==================
+
+bool StarryCard::loadSpiceTemplates()
+{
+    QStringList spiceTypes = {
+        "上等香料", "天然香料", "天使香料", "圣灵香料", "极品香料",
+        "秘制香料", "精灵香料", "魔幻香料", "皇室香料", "永久保鲜袋"
+    };
+    
+    spiceTemplateHashes.clear();
+    spiceTemplateImages.clear();
+    spiceTemplateHistograms.clear();
+    
+    for (const QString& spiceType : spiceTypes) {
+        QString filePath = QString(":/items/spices/%1.png").arg(spiceType);
+        QImage template_image(filePath);
+        
+        if (template_image.isNull()) {
+            qDebug() << "无法加载香料模板:" << spiceType << "路径:" << filePath;
+            continue;
+        }
+        
+        // 保存模板图像和计算颜色直方图
+        QRect roi(4, 4, 38, 24);  // 与四叶草相同的ROI区域
+        spiceTemplateImages[spiceType] = template_image;
+        QVector<double> histogram = calculateColorHistogram(template_image, roi);
+        spiceTemplateHistograms[spiceType] = histogram;
+        
+        // 计算哈希值
+        QString hash = calculateImageHash(template_image, roi);
+        spiceTemplateHashes[spiceType] = hash;
+        
+        qDebug() << "成功加载香料模板:" << spiceType << "颜色直方图特征数:" << histogram.size();
+        
+        // 保存模板图像用于调试
+        QString debugDir = QCoreApplication::applicationDirPath() + "/debug_spice";
+        QDir().mkpath(debugDir);
+        
+        QString templatePath = QString("%1/template_%2.png").arg(debugDir).arg(spiceType);
+        if (template_image.save(templatePath)) {
+            qDebug() << "香料模板图像已保存:" << templatePath;
+        }
+        
+        QImage templateROI = template_image.copy(roi);
+        QString templateROIPath = QString("%1/template_roi_%2.png").arg(debugDir).arg(spiceType);
+        if (templateROI.save(templateROIPath)) {
+            qDebug() << "香料模板ROI区域已保存:" << templateROIPath;
+        }
+    }
+    
+    spiceTemplatesLoaded = !spiceTemplateHistograms.isEmpty();
+    if (spiceTemplatesLoaded) {
+        qDebug() << "香料模板加载完成，总数:" << spiceTemplateHistograms.size();
+        addLog(QString("成功加载 %1 个香料模板").arg(spiceTemplateHistograms.size()), LogType::Success);
+    } else {
+        qDebug() << "香料模板加载失败，没有成功加载任何模板";
+        addLog("香料模板加载失败", LogType::Error);
+    }
+    
+    return spiceTemplatesLoaded;
+}
+
+QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spice_bound, bool spice_unbound)
+{
+    if (!spiceTemplatesLoaded) {
+        addLog("香料模板未加载，无法进行识别", LogType::Error);
+        return qMakePair(false, false);
+    }
+    
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，无法进行香料识别", LogType::Error);
+        return qMakePair(false, false);
+    }
+    
+    addLog(QString("开始识别香料: %1").arg(spiceType), LogType::Info);
+    
+    // 步骤1: 翻页到顶部（与四叶草识别逻辑相同）
+    qDebug() << "开始翻页到顶部";
+    addLog("正在翻页到顶部...", LogType::Info);
+    
+    // 循环点击上翻按钮直到翻到顶部
+    int maxPageUpAttempts = 20;
+    for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
+        leftClickDPI(hwndGame, 532, 539);
+        QThread::msleep(100);
+        
+        if (isPageAtTop()) {
+            qDebug() << "成功翻页到顶部，总共点击" << (attempt + 1) << "次";
+            addLog(QString("成功翻页到顶部，总共点击 %1 次").arg(attempt + 1), LogType::Success);
+            break;
+        }
+        
+        if (attempt == maxPageUpAttempts - 1) {
+            qDebug() << "翻页到顶部失败，已达最大尝试次数";
+            addLog("翻页到顶部失败", LogType::Warning);
+        }
+    }
+    
+    // 步骤2: 识别当前位置的10个香料
+    qDebug() << "开始识别当前位置的香料";
+    addLog("开始识别当前位置的香料", LogType::Info);
+    
+    int maxPageAttempts = 20;  // 最大翻页尝试次数
+    
+    for (int pageAttempt = 0; pageAttempt < maxPageAttempts; ++pageAttempt) {
+        QImage screenshot = captureGameWindow();
+        if (screenshot.isNull()) {
+            addLog("截取游戏窗口失败", LogType::Error);
+            continue;
+        }
+        
+        // 以坐标(33,526)为左上角，截取宽度为490像素，高度为49像素的区域
+        QRect spiceArea(33, 526, 490, 49);
+        QImage spiceStrip = screenshot.copy(spiceArea);
+        
+        if (!spiceStrip.isNull()) {
+            // 将此区域在宽度上分成十张，每张图片49*49像素
+            for (int i = 0; i < 10; ++i) {
+                int x_offset = i * 49;
+                QRect individualSpiceRect(x_offset, 0, 49, 49);
+                QImage singleSpice = spiceStrip.copy(individualSpiceRect);
+                
+                if (singleSpice.isNull()) {
+                    continue;
+                }
+                
+                int click_x = 33 + x_offset + 24;  // 计算香料中心位置
+                int click_y = 526 + 24;
+                
+                qDebug() << "第" << (pageAttempt * 10 + i + 1) << "个香料识别";
+                
+                if (recognizeSingleSpice(singleSpice, spiceType, click_x, click_y, spice_bound, spice_unbound)) {
+                    // recognizeSingleSpice 内部已经处理了绑定状态检查和点击操作
+                    // 需要返回实际的绑定状态，重新检查一次以获取状态
+                    bool actualBindState = isSpiceBound(singleSpice);
+                    return qMakePair(true, actualBindState);
+                }
+            }
+        }
+        
+        // 步骤4: 如果未找到匹配的香料，则翻页继续匹配
+        // 点击向下翻页按钮(535, 563)1次，与四叶草识别逻辑保持一致
+        qDebug() << "未找到匹配的香料，开始翻页";
+        addLog(QString("第 %1 页未找到匹配香料，翻页继续").arg(pageAttempt + 1), LogType::Info);
+        
+        leftClickDPI(hwndGame, 535, 563);
+        QThread::msleep(100);
+        qDebug() << "点击向下翻页按钮1次";
+        
+        // 检查是否翻页到底部
+        if (isPageAtBottom()) {
+            qDebug() << "已翻页到底部，终止香料识别";
+            addLog("已翻页到底部，未找到匹配的香料", LogType::Warning);
+            break;
+        } else {
+            addLog(QString("第 %1 页检查完成，继续下一页").arg(pageAttempt + 1), LogType::Info);
+        }
+    }
+    
+    // 识别失败
+    addLog(QString("香料识别失败: %1").arg(spiceType), LogType::Error);
+    return qMakePair(false, false);
+}
+
+bool StarryCard::recognizeSingleSpice(const QImage& spiceImage, const QString& spiceType, int positionX, int positionY, 
+                                      bool spice_bound, bool spice_unbound)
+{
+    if (spiceImage.isNull()) {
+        return false;
+    }
+    
+    // 使用颜色直方图进行匹配
+    QRect spiceROI(4, 4, 38, 24);
+    double similarity = 0.0;
+    
+    if (spiceTemplateImages.contains(spiceType)) {
+        QImage templateImage = spiceTemplateImages[spiceType];
+        similarity = calculateColorHistogramSimilarity(spiceImage, templateImage, spiceROI);
+    }
+    
+    // 输出相似度用于调试
+    qDebug() << "香料与" << spiceType << "的相似度:" << QString::number(similarity, 'f', 4);
+    
+    // 设置相似度阈值（与要求保持一致）
+    double similarityThreshold = 1.00; // 100%相似度
+    
+    // 检查是否匹配
+    if (similarity >= similarityThreshold) {
+        addLog(QString("找到匹配的香料: %1").arg(spiceType), LogType::Success);
+        
+        // 步骤3: 检查绑定状态
+        bool actualBindState = false;
+        if (checkSpiceBindState(spiceImage, spice_bound, spice_unbound, actualBindState)) {
+            // 步骤5: 点击该香料中心位置
+            leftClickDPI(hwndGame, positionX, positionY);
+            addLog(QString("点击香料中心位置: (%1, %2)").arg(positionX).arg(positionY), LogType::Success);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+bool StarryCard::checkSpiceBindState(const QImage& spiceImage, bool spice_bound, bool spice_unbound, bool& actualBindState)
+{
+    actualBindState = false;
+    
+    // 如果不需要检查绑定状态，直接返回true
+    if (!spice_bound && !spice_unbound) {
+        return true;
+    }
+    
+    // 检查实际绑定状态
+    actualBindState = isSpiceBound(spiceImage);
+    addLog(QString("香料绑定状态: %1").arg(actualBindState ? "绑定" : "未绑定"), LogType::Info);
+    
+    // 检查绑定状态是否符合要求
+    bool bindStateMatches = false;
+    if (spice_bound && spice_unbound) {
+        // 两种状态都接受
+        bindStateMatches = true;
+    } else if (spice_bound && !spice_unbound) {
+        // 只接受绑定状态
+        bindStateMatches = actualBindState;
+    } else if (!spice_bound && spice_unbound) {
+        // 只接受未绑定状态
+        bindStateMatches = !actualBindState;
+    }
+    
+    if (!bindStateMatches) {
+        addLog("香料绑定状态不符合要求，继续寻找", LogType::Info);
+    }
+    
+    return bindStateMatches;
+}
+
+bool StarryCard::isSpiceBound(const QImage& spiceImage)
+{
+    if (bindStateTemplateHash.isEmpty() || spiceImage.isNull()) {
+        qDebug() << "绑定状态检查失败: 模板哈希为空或图像无效";
+        return false;
+    }
+    
+    // 绑定状态识别ROI区域：香料图像的(3,38)开始，宽度为6，高度为7的区域
+    QRect bindStateROI(3, 38, 6, 7);
+    
+    // 确保ROI区域在图像范围内
+    if (!spiceImage.rect().contains(bindStateROI)) {
+        qDebug() << "香料图像尺寸不正确，图像大小:" << spiceImage.size() << "ROI区域:" << bindStateROI;
+        addLog("香料图像尺寸不正确，无法进行绑定状态识别", LogType::Warning);
+        return false;
+    }
+    
+    // 计算当前图像绑定状态区域的哈希值
+    QString currentHash = calculateImageHash(spiceImage, bindStateROI);
+    bool match = (currentHash == bindStateTemplateHash);
+    qDebug() << "香料绑定状态:" << (match ? "绑定" : "不绑定");
+    
+    // 如果该区域与绑定模板匹配度为1，返回真，否则返回假
+    return (currentHash == bindStateTemplateHash);
 }
 
 // ================== 配方识别功能实现 ==================
