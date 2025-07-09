@@ -35,6 +35,11 @@ void RecipeRecognizer::setCaptureCallback(CaptureCallback callback)
     m_captureCallback = callback;
 }
 
+void RecipeRecognizer::setSleepCallback(SleepCallback callback)
+{
+    m_sleepCallback = callback;
+}
+
 // 内部辅助方法
 void RecipeRecognizer::addLog(const QString& message, LogType type)
 {
@@ -63,6 +68,13 @@ QImage RecipeRecognizer::captureGameWindow()
         return m_captureCallback();
     }
     return QImage();
+}
+
+void RecipeRecognizer::sleepByQElapsedTimer(int ms)
+{
+    if (m_sleepCallback) {
+        m_sleepCallback(ms);
+    }
 }
 
 // 计算颜色直方图
@@ -639,7 +651,7 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
     leftClickDPI(hwndGame, clickTopX, clickTopY);
     addLog(QString("[翻页] 点击配方区域顶部: 全屏坐标(%1, %2)").arg(clickTopX).arg(clickTopY), LogType::Info);
     qDebug() << "[翻页] 点击配方区域顶部: 全屏坐标(" << clickTopX << "," << clickTopY << ")";
-    QThread::msleep(500);
+    sleepByQElapsedTimer(500);
 
     // 翻页到顶部后，重新截取游戏窗口
     QImage topScreenshot = captureGameWindow();
@@ -677,7 +689,7 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
             leftClickDPI(hwndGame, clickPageX, clickPageY);
             addLog(QString("[翻页] 点击配方区域底部: 全屏坐标(%1, %2)").arg(clickPageX).arg(clickPageY), LogType::Info);
             qDebug() << "[翻页] 点击配方区域底部: 全屏坐标(" << clickPageX << "," << clickPageY << ")";
-            QThread::msleep(500);
+            sleepByQElapsedTimer(500);
             pageCount++;
             addLog(QString("翻到第 %1 页").arg(pageCount), LogType::Info);
             QImage newScreenshot = captureGameWindow();

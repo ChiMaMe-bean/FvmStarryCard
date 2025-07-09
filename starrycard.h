@@ -106,6 +106,9 @@ class StarryCard : public QMainWindow
 public:
     StarryCard(QWidget *parent = nullptr);
     ~StarryCard();
+    
+    // 任务延时
+    void sleepByQElapsedTimer(int ms);
 
 private slots:
     void changeBackground(const QString &theme);
@@ -194,9 +197,6 @@ private:
     BOOL leftClickDPI(HWND hwnd, int x, int y);
     BOOL leftClick(HWND hwnd, int x, int y);
     BOOL closeHealthTip();
-
-    // 任务延时
-    void sleepByQElapsedTimer(int ms);
     
     // 窗口位图获取方法
     BOOL getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& pixelData);

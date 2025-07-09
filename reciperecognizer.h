@@ -38,6 +38,7 @@ public:
     using LogCallback = std::function<void(const QString& message, LogType type)>;
     using ClickCallback = std::function<bool(HWND hwnd, int x, int y)>;
     using CaptureCallback = std::function<QImage()>;
+    using SleepCallback = std::function<void(int ms)>;
 
     // 构造函数
     RecipeRecognizer();
@@ -47,6 +48,7 @@ public:
     void setLogCallback(LogCallback callback);
     void setClickCallback(ClickCallback callback);
     void setCaptureCallback(CaptureCallback callback);
+    void setSleepCallback(SleepCallback callback);
 
     // 现有的网格线相关方法
     void getRecipeGridLines(const QImage& recipeArea, QVector<int>& xLines, QVector<int>& yLines);
@@ -81,12 +83,14 @@ private:
     LogCallback m_logCallback;
     ClickCallback m_clickCallback;
     CaptureCallback m_captureCallback;
+    SleepCallback m_sleepCallback;
 
     // 内部辅助方法
     void addLog(const QString& message, LogType type);
     void addLog(const QString& message);  // 重载版本提供默认行为
     bool leftClickDPI(HWND hwnd, int x, int y);
     QImage captureGameWindow();
+    void sleepByQElapsedTimer(int ms);
 };
 
 #endif // RECIPERECOGNIZER_H 

@@ -120,6 +120,9 @@ StarryCard::StarryCard(QWidget *parent)
     recipeRecognizer->setCaptureCallback([this]() -> QImage {
         return captureGameWindow();
     });
+    recipeRecognizer->setSleepCallback([this](int ms) {
+        sleepByQElapsedTimer(ms);
+    });
     
     // 初始化配方识别模板
     recipeRecognizer->loadRecipeTemplates();
@@ -164,10 +167,11 @@ void StarryCard::setupUI()
     buttonGroup = new QButtonGroup(this);
     buttonGroup->setExclusive(true);
 
-    // 添加三个功能按钮
+    // 添加四个功能按钮
     QToolButton *btn1 = new QToolButton();
     QToolButton *btn2 = new QToolButton();
     QToolButton *btn3 = new QToolButton();
+    QToolButton *btn4 = new QToolButton();
 
     // 设置按钮样式
     QString buttonStyle = R"(
@@ -188,8 +192,8 @@ void StarryCard::setupUI()
 
     // 设置图标和文本布局
     QSize iconSize(32, 32);
-    QList<QToolButton*> buttons = {btn1, btn2, btn3};
-    QStringList buttonTexts = {"强化日志", "强化方案", "功能 3"};
+    QList<QToolButton*> buttons = {btn1, btn2, btn3, btn4};
+    QStringList buttonTexts = {"强化日志", "强化方案", "制卡方案", "功能 4"};
     for (int idx = 0; idx < buttons.size(); ++idx) {
         QToolButton *btn = buttons[idx];
         if (btn) {
@@ -208,6 +212,7 @@ void StarryCard::setupUI()
     buttonGroup->addButton(btn1, 0);
     buttonGroup->addButton(btn2, 1);
     buttonGroup->addButton(btn3, 2);
+    buttonGroup->addButton(btn4, 3);
 
     // 区域二（中间）
     centerStack = new QStackedWidget();
@@ -250,7 +255,7 @@ void StarryCard::setupUI()
     page3Layout->setSpacing(10);
     
     // 添加标题
-    QLabel* page3Title = new QLabel("高级功能配置");
+    QLabel* page3Title = new QLabel("制卡方案");
     page3Title->setAlignment(Qt::AlignCenter);
     page3Title->setStyleSheet(R"(
         font-size: 16px;
@@ -277,7 +282,7 @@ void StarryCard::setupUI()
     configLayout->setSpacing(10);
     
     // 添加一些示例配置选项
-    QLabel* configLabel = new QLabel("此页面预留用于其他高级功能配置");
+    QLabel* configLabel = new QLabel("此页面预留用于配方和香料的制卡方案配置");
     configLabel->setAlignment(Qt::AlignCenter);
     configLabel->setStyleSheet(R"(
         color: #003D7A;
@@ -342,9 +347,111 @@ void StarryCard::setupUI()
     page3Layout->addWidget(configArea, 1);
     page3Layout->addStretch();
 
+    // 创建第四个页面 - 与页面三风格保持一致
+    QWidget *page4 = new QWidget();
+    page4->setStyleSheet("background-color: transparent;");
+    
+    QVBoxLayout* page4Layout = new QVBoxLayout(page4);
+    page4Layout->setContentsMargins(5, 5, 5, 5);
+    page4Layout->setSpacing(10);
+    
+    // 添加标题
+    QLabel* page4Title = new QLabel("高级功能配置");
+    page4Title->setAlignment(Qt::AlignCenter);
+    page4Title->setStyleSheet(R"(
+        font-size: 16px;
+        font-weight: bold; 
+        color: #003D7A;
+        background-color: rgba(125, 197, 255, 150);
+        border-radius: 8px;
+        padding: 8px;
+    )");
+    page4Layout->addWidget(page4Title);
+    
+    // 创建配置区域
+    QWidget* configArea4 = new QWidget();
+    configArea4->setStyleSheet(R"(
+        QWidget {
+            background-color: rgba(255, 255, 255, 160);
+            border: 2px solid rgba(102, 204, 255, 200);
+            border-radius: 8px;
+        }
+    )");
+    
+    QVBoxLayout* configLayout4 = new QVBoxLayout(configArea4);
+    configLayout4->setContentsMargins(15, 15, 15, 15);
+    configLayout4->setSpacing(10);
+    
+    // 添加一些示例配置选项
+    QLabel* configLabel4 = new QLabel("此页面预留用于其他高级功能配置");
+    configLabel4->setAlignment(Qt::AlignCenter);
+    configLabel4->setStyleSheet(R"(
+        color: #003D7A;
+        font-size: 14px;
+        padding: 20px;
+    )");
+    configLayout4->addWidget(configLabel4);
+    
+    // 添加一些占位按钮
+    QHBoxLayout* buttonLayout4 = new QHBoxLayout();
+    buttonLayout4->setSpacing(10);
+    
+    QPushButton* option1Btn4 = new QPushButton("选项1");
+    option1Btn4->setFixedSize(120, 35);
+    option1Btn4->setStyleSheet(R"(
+        QPushButton {
+            background-color: rgba(102, 204, 255, 200);
+            color: #003D7A;
+            border: 2px solid rgba(102, 204, 255, 255);
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        QPushButton:hover {
+            background-color: rgba(102, 204, 255, 255);
+            color: white;
+        }
+        QPushButton:pressed {
+            background-color: rgba(0, 61, 122, 200);
+            color: white;
+        }
+    )");
+    
+    QPushButton* option2Btn4 = new QPushButton("选项2");
+    option2Btn4->setFixedSize(120, 35);
+    option2Btn4->setStyleSheet(R"(
+        QPushButton {
+            background-color: rgba(125, 197, 255, 200);
+            color: #003D7A;
+            border: 2px solid rgba(125, 197, 255, 255);
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        QPushButton:hover {
+            background-color: rgba(125, 197, 255, 255);
+            color: white;
+        }
+        QPushButton:pressed {
+            background-color: rgba(0, 61, 122, 200);
+            color: white;
+        }
+    )");
+    
+    buttonLayout4->addStretch();
+    buttonLayout4->addWidget(option1Btn4);
+    buttonLayout4->addWidget(option2Btn4);
+    buttonLayout4->addStretch();
+    
+    configLayout4->addLayout(buttonLayout4);
+    
+    page4Layout->addWidget(configArea4, 1);
+    page4Layout->addStretch();
+
     centerStack->addWidget(logPage);
     centerStack->addWidget(enhancementPage);
     centerStack->addWidget(page3);
+    centerStack->addWidget(page4);
 
     // 默认选中"强化日志"按钮
     btn1->setChecked(true);
@@ -3365,7 +3472,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     int maxPageUpAttempts = 20;
     for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
         leftClickDPI(hwndGame, 532, 539);
-        QThread::msleep(100);
+        sleepByQElapsedTimer(100);
         
         if (isPageAtTop()) {
             qDebug() << "成功翻页到顶部，总共点击" << (attempt + 1) << "次";
@@ -3422,7 +3529,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         
         // 点击下翻按钮
         leftClickDPI(hwndGame, 535, 563);
-        QThread::msleep(100);
+        sleepByQElapsedTimer(100);
         
         // 只检查第十个位置（翻页后这个位置会更新）
         QImage screenshotAfterPage = captureGameWindow();
@@ -3767,7 +3874,7 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
     int maxPageUpAttempts = 20;
     for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
         leftClickDPI(hwndGame, 532, 539);
-        QThread::msleep(100);
+        sleepByQElapsedTimer(100);
         
         if (isPageAtTop()) {
             qDebug() << "成功翻页到顶部，总共点击" << (attempt + 1) << "次";
@@ -3829,7 +3936,7 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
         addLog(QString("第 %1 页未找到匹配香料，翻页继续").arg(pageAttempt + 1), LogType::Info);
         
         leftClickDPI(hwndGame, 535, 563);
-        QThread::msleep(100);
+        sleepByQElapsedTimer(100);
         qDebug() << "点击向下翻页按钮1次";
         
         // 检查是否翻页到底部
