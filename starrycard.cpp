@@ -23,11 +23,6 @@
 #include <QElapsedTimer>
 #include <Windows.h>  // 包含 Windows.h 头文件，用于获取屏幕分辨率
 #include <cstring>
-
-// RGB颜色分量提取宏定义(rgb为0x00RRGGBB类型)
-#define bgrRValue(rgb)      (LOBYTE((rgb)>>16))  // 红色分量
-#define bgrGValue(rgb)      (LOBYTE(((WORD)(rgb)) >> 8))  // 绿色分量
-#define bgrBValue(rgb)      (LOBYTE(rgb))  // 蓝色分量
 #include <QTimer>
 #include <QEventLoop>
 #include <QMessageBox>
@@ -41,8 +36,14 @@
 #include <QTextDocument>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <QtMath>
 #include <QScrollBar>
-#include <chrono>
+
+// RGB颜色分量提取宏定义(rgb为0x00RRGGBB类型)
+#define bgrRValue(rgb)      (LOBYTE((rgb)>>16))  // 红色分量
+#define bgrGValue(rgb)      (LOBYTE(((WORD)(rgb)) >> 8))  // 绿色分量
+#define bgrBValue(rgb)      (LOBYTE(rgb))  // 蓝色分量
+// #include <chrono>
 
 // 定义全局变量，用于存储 DPI 信息
 int DPI = 96;  // 默认 DPI 值为 96，即 100% 缩  放
@@ -1142,13 +1143,9 @@ void StarryCard::updateCurrentBgLabel()
     currentBgLabel->setText(bgName);
 }
 
+// 获取DPI缩放因子
 int StarryCard::getDPIFromDC()
 {
-    // int screenWidthBeforeAware = GetSystemMetrics(SM_CXSCREEN);
-    // SetProcessDPIAware(); // 设置进程DPI感知
-    // int screenWidthAfterAware = GetSystemMetrics(SM_CXSCREEN);
-    // return int(96 * double(screenWidthAfterAware) / screenWidthBeforeAware + 0.5); // 获取DPI值
-    // 获取DPI缩放因子 - 使用更精确的方法
     HDC hdc = GetDC(GetDesktopWindow());
     
     int dpi = 96;  // 默认DPI
@@ -1260,9 +1257,6 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
         addLog(QString("获取窗口位置失败: %1").arg(windowName), LogType::Error);
         return QImage();
     }
-
-    // 输出窗口信息
-    addLog(QString("%1窗口位置：(%2, %3) - (%4, %5)").arg(windowName).arg(rect.left).arg(rect.top).arg(rect.right).arg(rect.bottom), LogType::Info);
     
     // 获取窗口DC
     HDC hdcWindow = GetDC(hwnd);
@@ -1333,6 +1327,77 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
 
     addLog(QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height), LogType::Success);
     return image;
+}
+
+QImage StarryCard::captureImageRegion(const QImage& sourceImage, const QRect& rect, const QString& filename)
+{
+    // 检查源图像是否有效
+    if (sourceImage.isNull()) {
+        qDebug() << "源图像无效，无法截取区域";
+        return QImage();
+    }
+    
+    // 验证QRect参数的有效性
+    if (!rect.isValid() || rect.isEmpty()) {
+        qDebug() << QString("无效的截取区域：(%1,%2,%3,%4)")
+                    .arg(rect.x()).arg(rect.y()).arg(rect.width()).arg(rect.height());
+        return QImage();
+    }
+    
+    // 检查截取区域是否超出源图像边界
+    QRect imageRect(0, 0, sourceImage.width(), sourceImage.height());
+    if (!imageRect.contains(rect)) {
+        qDebug() << QString("截取区域超出图像边界。图像尺寸：%1x%2，截取区域：(%3,%4,%5,%6)")
+                    .arg(sourceImage.width()).arg(sourceImage.height())
+                    .arg(rect.x()).arg(rect.y())
+                    .arg(rect.width()).arg(rect.height());
+        return QImage();
+    }
+    
+    // 截取指定区域
+    QImage regionImage = sourceImage.copy(rect);
+    if (regionImage.isNull()) {
+        qDebug() << "截取图像区域失败";
+        return QImage();
+    }
+    
+    // 确保screenshots文件夹存在
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString screenshotsDir = appDir + "/screenshots";
+    QDir dir(screenshotsDir);
+    if (!dir.exists()) {
+        if (!dir.mkpath(screenshotsDir)) {
+            qDebug() << "创建screenshots文件夹失败";
+            return QImage();
+        }
+    }
+    
+    // 生成文件名
+    QString saveFilename;
+    if (filename.isEmpty()) {
+        saveFilename = QString("%1/region_%2_%3_%4x%5.png")
+                      .arg(screenshotsDir)
+                      .arg(rect.x()).arg(rect.y())
+                      .arg(rect.width()).arg(rect.height());
+    } else {
+        // 如果提供了文件名但没有扩展名，则添加.png
+        QString baseFilename = filename;
+        if (!baseFilename.endsWith(".png", Qt::CaseInsensitive)) {
+            baseFilename += ".png";
+        }
+        saveFilename = QString("%1/%2").arg(screenshotsDir).arg(baseFilename);
+    }
+    
+    // 保存截取的图像
+    if (regionImage.save(saveFilename)) {
+        qDebug() << QString("区域图像保存成功：%1 (尺寸：%2x%3)")
+                    .arg(saveFilename).arg(regionImage.width()).arg(regionImage.height());
+    } else {
+        qDebug() << QString("区域图像保存失败：%1").arg(saveFilename);
+        // 即使保存失败，仍然返回截取到的图像
+    }
+    
+    return regionImage;
 }
 
 void StarryCard::showRecognitionResults(const std::vector<CardInfo>& results)
@@ -1545,6 +1610,10 @@ void StarryCard::onCaptureAndRecognize()
         // 执行刷新测试功能
         addLog("开始刷新测试...", LogType::Info);
         refreshGameWindow();
+
+        sleepByQElapsedTimer(4000); // 等待4秒
+
+        closeHealthTip();
     }
     
     addLog(QString("调试功能 '%1' 执行完成").arg(debugMode), LogType::Success);
@@ -4000,7 +4069,7 @@ BOOL StarryCard::isGamePlatformColor(COLORREF color, int platformType)
         // 目标颜色 0x3c3c3d (R=60, G=60, B=61)
         return (r == 60) && (g == 60) && (b == 61);
         
-    case 4: // 纯白色检验 - 接近白色的颜色
+    case 4: // 纯白色
         return (r == 255) && (g == 255) && (b == 255);
         
     case 5: // 断网界面 - 浅蓝灰色
@@ -4137,17 +4206,18 @@ BOOL StarryCard::getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& 
     return TRUE;
 }
 
-//在大厅窗口中等待最近服务器出现，返回所属平台
-int StarryCard::waitServerInWindow(int *px, int *py)
+// 在大厅窗口中等待最近服务器出现，返回所属平台
+int StarryCard::waitServerInWindow(RECT rectServer, int *px, int *py)
 {
     // 首先检查大厅窗口是否有效
-    if (!hwndHall || !IsWindow(hwndHall)) {
+    if (!hwndHall || !IsWindow(hwndHall))
+    {
         addLog("大厅窗口句柄无效，无法进行服务器识别", LogType::Error);
         return -1;
     }
-    
+
     addLog("开始等待选服窗口出现...", LogType::Info);
-    
+
     int times = 0;
     while (times < 10) // 改为明确的条件，而不是while(true)
     {
@@ -4155,53 +4225,45 @@ int StarryCard::waitServerInWindow(int *px, int *py)
         addLog(QString("第%1次尝试识别服务器窗口...").arg(times), LogType::Info);
 
         // 首先检查是否有游戏窗口（微端情况）
-        if (getActiveGameWindow(hwndHall)) {
+        if (getActiveGameWindow(hwndHall))
+        {
             addLog("发现游戏窗口，识别为微端，无需选服", LogType::Success);
             return 0;
         }
 
-        // 依次查找4399、QQ空间、QQ大厅色块，找到直接返回
-        for (int platformType = 1; platformType <= 3; platformType++) {
+        // 依次查找4399、QQ空间、QQ大厅，纯白，断网色块，找到直接返回
+        for (int platformType = 1; platformType <= 4; platformType++)
+        {
             int result = findLatestServer(platformType, px, py);
-            if (result == platformType) {
-                addLog(QString("找到选服窗口：平台类型%1").arg(platformType), LogType::Success);
+            if (result == platformType)
+            {
+                qDebug() << QString("找到选服窗口：平台类型%1").arg(platformType);
                 return platformType;
             }
             // 如果findLatestServer返回-1，说明位图获取失败，提前退出
-            if (result == -1) {
-                addLog("位图获取失败，停止识别", LogType::Error);
+            if (result == -1)
+            {
+                qDebug() << "位图获取失败，停止识别";
                 return -1;
             }
         }
-        
-                 // 检查纯白色登录界面
-         int whiteResult = findLatestServer(4, px, py);
-         if (whiteResult == 4) {
-             addLog("检测到纯白色登录界面", LogType::Info);
-             return 4;
-         }
-         if (whiteResult == -1) {
-             addLog("位图获取失败，停止识别", LogType::Error);
-             return -1;
-         }
-         
-         // 检查断网界面
-         int disconnectResult = findLatestServer(5, px, py);
-         if (disconnectResult == 5) {
-             addLog("检测到断网界面", LogType::Warning);
-             return 5;
-         }
-         if (disconnectResult == -1) {
-             addLog("位图获取失败，停止识别", LogType::Error);
-             return -1;
-         }
+        int platformType = findLatestServer(5, px, py);
+        if (platformType == 5)
+        {
+            int retryX = (rectServer.right - rectServer.left) / 2;
+            int retryY = 350 * DPI / 96;
+            leftClick(hwndServer, retryX, retryY);
+            qDebug() << "找到断网窗口，点击重试按钮位置:" << retryX << "," << retryY;
+            sleepByQElapsedTimer(2000); // 等待2秒
+            hwndServer = getActiveServerWindow(hwndHall);
+        }
 
         addLog(QString("第%1次识别未找到匹配的平台，等待1秒后重试...").arg(times), LogType::Warning);
-        
+
         // 使用Qt事件循环进行安全延时，保持界面响应
         sleepByQElapsedTimer(1000);
     }
-    
+
     addLog("等待选服窗口超时，所有尝试均失败", LogType::Error);
     return -1;
 }
@@ -4265,8 +4327,8 @@ int StarryCard::findLatestServer(int platformType, int *px, int *py)
             if (result == platformType) {
                 *px = x;
                 *py = y;
-                // addLog(QString("找到平台类型%1的色块：位置(%2,%3)，尺寸(%4x%5)")
-                //        .arg(platformType).arg(x).arg(y).arg(width).arg(height), LogType::Success);
+                addLog(QString("找到平台类型%1的色块：位置(%2,%3)，尺寸(%4x%5)")
+                       .arg(platformType).arg(x).arg(y).arg(width).arg(height), LogType::Success);
                 return platformType;
             }
             
@@ -4490,7 +4552,7 @@ void StarryCard::refreshGameWindow()
 
     int x = 0;
     int y = 0;
-    int platformType = waitServerInWindow(&x, &y);
+    int platformType = waitServerInWindow(rectServer, &x, &y);
 
     //根据平台和大厅判定坐标确定最近服务器在选服窗口中的坐标
     int latestServerX = 0, latestServerY = 0;//最近服务器在选服窗口中的坐标
@@ -4522,9 +4584,13 @@ void StarryCard::refreshGameWindow()
         latestServerY = 580 * DPI / 96;
         addLog(QString("找到QQ大厅的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
     }
+    else if (platformType == 4)
+    {
+        qDebug() << "找到选服窗口的纯白色色块";
+    }
     else
     {
-        addLog("未知的平台类型", LogType::Warning);
+        qDebug() << "未知的平台类型";
         return;
     }
 
@@ -4536,7 +4602,7 @@ void StarryCard::refreshGameWindow()
         if (counter > 10)
         {
             qDebug() << "无法进入服务器";
-            break;
+            return;
         }
         if(platformType >= 1 && platformType <= 3) // 1为4399，2为QQ空间，3为QQ大厅,需要点击最近服务器位置
         {
@@ -4547,10 +4613,122 @@ void StarryCard::refreshGameWindow()
         hwndGame = getActiveGameWindow(hwndHall);
         if (hwndGame)
         {
+            updateHandleDisplay(hwndGame);
             qDebug() << "找到游戏窗口:" << hwndGame;
             break;
         }
     }
-    updateHandleDisplay(hwndGame);
 }
-#include "starrycard.moc"
+
+// 计算图像的64位平均哈希
+// uint64_t StarryCard::calculateImageHash(const QImage& inputImage) {
+//     // 步骤1: 转换为灰度并缩小到8x8（核心降维）
+//     QImage gray = inputImage.convertToFormat(QImage::Format_Grayscale8);
+//     QImage small = gray.scaled(8, 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+
+//     // 步骤2: 计算像素平均值
+//     quint64 total = 0;
+//     for (int y = 0; y < small.height(); ++y) {
+//         const uchar* scanLine = small.scanLine(y);
+//         for (int x = 0; x < small.width(); ++x) {
+//             total += scanLine[x];
+//         }
+//     }
+//     quint8 average = static_cast<quint8>(total / 64);  // 64像素
+
+//     // 步骤3: 生成哈希值 (大于平均值=1，否则=0)
+//     uint64_t hash = 0;
+//     for (int y = 0; y < small.height(); ++y) {
+//         const uchar* scanLine = small.scanLine(y);
+//         for (int x = 0; x < small.width(); ++x) {
+//             hash <<= 1;  // 左移一位
+//             if (scanLine[x] >= average) {
+//                 hash |= 1;  // 设置最低位为1
+//             }
+//         }
+//     }
+//     return hash;
+// }
+
+// 计算汉明距离 (差异比特数)
+int StarryCard::hammingDistance(uint64_t hash1, uint64_t hash2) {
+    uint64_t xorResult = hash1 ^ hash2;
+    int distance = 0;
+    while (xorResult) {
+        distance += xorResult & 1;
+        xorResult >>= 1;
+    }
+    return distance;
+}
+
+// 图片相似度匹配接口 (返回汉明距离)
+int StarryCard::matchImages(const QString& path, uint64_t hash) {
+    QImage imgTemplate(path);
+    
+    if (imgTemplate.isNull()) {
+        qWarning() << "Failed to load images";
+        return -1;
+    }
+    
+    // 统一处理为20x20（输入非20x20时自动缩放）
+    // if (imgTemplate.size() != QSize(20, 20)) {
+    //     imgTemplate = imgTemplate.scaled(20, 20, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    // }
+    
+    uint64_t hashTemplate = calculateImageHash(imgTemplate).toULongLong();
+
+    qDebug() << "hashTemplate:" << hashTemplate << "hash:" << hash;
+    
+    return hammingDistance(hash, hashTemplate);
+}
+
+BOOL StarryCard::closeHealthTip()
+{
+    if(!IsWindowVisible(hwndGame))
+    {
+        addLog("游戏窗口未显示，无法关闭健康提示", LogType::Error);
+        return FALSE;
+    }
+
+    // 健康提示模板
+    QString healthTipPath = ":/items/position/healthyTip.png";
+    QImage imgTemplate(healthTipPath);
+    QString hashHealthyTip = calculateImageHash(imgTemplate);
+
+    // 世界地图模板
+    QString rankPath = ":/items/position/rank.png";
+    QImage imgRank(rankPath);
+    QString hashRank = calculateImageHash(imgRank);
+
+    // 等待健康提示出现，最多等待10秒
+    for (int i = 0; i < 10; i++)
+    {
+        QImage imgGame = captureWindowByHandle(hwndGame);
+        if (imgGame.isNull())
+        {
+            addLog("获取游戏窗口截图失败", LogType::Error);
+            return FALSE;
+        }
+
+        QString hashHealthyTipCurrent = calculateImageHash(imgGame, QRect(378, 330, 20, 20));
+        QString hashRankCurrent = calculateImageHash(imgGame, QRect(178, 96, 20, 20));
+
+        if (hashHealthyTipCurrent == hashHealthyTip) // 健康提示出现
+        {
+            // 点击关闭健康提示
+            leftClickDPI(hwndGame, 588, 204);
+            addLog("点击关闭健康提示成功", LogType::Success);
+            sleepByQElapsedTimer(100); // 等待100毫秒
+            if(hashRankCurrent != hashRank) // 健康提示出现且排行榜未出现，视为有假期特惠挡住
+            {
+                // 点击关闭假期特惠
+                leftClickDPI(hwndGame, 840, 44);
+                addLog("点击关闭假期特惠成功", LogType::Success);
+            }
+            return TRUE;
+        }
+        sleepByQElapsedTimer(1000);
+    }
+    addLog("健康提示未显示，关闭失败", LogType::Error);
+    return FALSE;
+}

@@ -148,6 +148,7 @@ private:
     void updateCurrentBgLabel();
     QImage captureGameWindow();
     QImage captureWindowByHandle(HWND hwnd, const QString& windowName = "");
+    QImage captureImageRegion(const QImage& sourceImage, const QRect& rect, const QString& filename = "");
     void showRecognitionResults(const std::vector<CardInfo>& results);
     QWidget* createEnhancementConfigPage();
     int getMinSubCardLevel(int enhancementLevel);
@@ -192,6 +193,7 @@ private:
     // 鼠标点击相关方法
     BOOL leftClickDPI(HWND hwnd, int x, int y);
     BOOL leftClick(HWND hwnd, int x, int y);
+    BOOL closeHealthTip();
 
     // 任务延时
     void sleepByQElapsedTimer(int ms);
@@ -203,7 +205,10 @@ private:
     BOOL isGamePlatformColor(COLORREF color, int platformType);
     int recognizeBitmapRegionColor(int platformType, COLORREF *pHallShot[4320], const QRect& region);
 
-    // 配方模板数据（已迁移到 RecipeRecognizer）
+    // 图像哈希对比
+    // uint64_t calculateImageHash(const QImage& image, const QRect& roi);
+    int hammingDistance(uint64_t hash1, uint64_t hash2);
+    int matchImages(const QString& path1, uint64_t hash);
 
     // 寻找游戏窗口相关方法
     HWND getGameWindow(HWND hwndHall);
@@ -211,7 +216,7 @@ private:
     // 寻找选服窗口相关方法
     HWND getServerWindow(HWND hwndChild);
     HWND getActiveServerWindow(HWND hwndHall);
-    int waitServerInWindow(int *px = nullptr, int *py = nullptr);
+    int waitServerInWindow(RECT rectServer, int *px = nullptr, int *py = nullptr);
     int findLatestServer(int platformType, int *px, int *py);
     void refreshGameWindow();
 
