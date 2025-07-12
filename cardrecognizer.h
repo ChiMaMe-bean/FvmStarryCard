@@ -73,7 +73,6 @@ public:
 
 private:
     cv::Mat qImageToCvMat(const QImage& image);
-    QImage cvMatToQImage(const cv::Mat& mat);
     std::vector<cv::Mat> cardTemplates;
     std::vector<std::string> templateNames;
     cv::Mat separatorLine;

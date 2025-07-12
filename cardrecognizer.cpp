@@ -25,15 +25,6 @@ QString getAppDataPath() {
     return dataDir.absolutePath();
 }
 
-// 用于调试输出哈希值
-QString hashToString(const cv::Mat& hash) {
-    QString result;
-    for (int i = 0; i < hash.cols; i++) {
-        result += QString::number(hash.at<uchar>(0, i)) + " ";
-    }
-    return result.trimmed();
-}
-
 CardRecognizer::CardRecognizer(QObject *parent)
     : QObject(parent)
 {
@@ -129,7 +120,6 @@ bool CardRecognizer::loadTemplates()
                      << "\nTemplate size:" << cardTemplate.cols << "x" << cardTemplate.rows
                      << "\nROI size:" << roiTemplate.cols << "x" << roiTemplate.rows
                      << "\nHash size:" << hash.cols << "x" << hash.rows
-                     << "\nHash value:" << hashToString(hash);
 
             // 保存调试图像
             QString debugDir = getAppDataPath() + "/template_debug";
@@ -189,32 +179,6 @@ cv::Mat CardRecognizer::qImageToCvMat(const QImage& image)
     }
 }
 
-QImage CardRecognizer::cvMatToQImage(const cv::Mat& mat)
-{
-    // 确保图像不为空
-    if (mat.empty()) {
-        return QImage();
-    }
-    
-    // 根据通道数处理
-    if (mat.channels() == 3) {
-        // BGR格式转为RGB
-        cv::Mat rgbMat;
-        cv::cvtColor(mat, rgbMat, cv::COLOR_BGR2RGB);
-        return QImage(rgbMat.data, rgbMat.cols, rgbMat.rows, rgbMat.step, QImage::Format_RGB888).copy();
-    } else if (mat.channels() == 1) {
-        // 灰度图像
-        return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_Grayscale8).copy();
-    } else if (mat.channels() == 4) {
-        // BGRA格式
-        cv::Mat rgbaMat;
-        cv::cvtColor(mat, rgbaMat, cv::COLOR_BGRA2RGBA);
-        return QImage(rgbaMat.data, rgbaMat.cols, rgbaMat.rows, rgbaMat.step, QImage::Format_RGBA8888).copy();
-    }
-    
-    return QImage();
-}
-
 void CardRecognizer::loadLevelTemplates()
 {
     m_levelTemplates.clear();
@@ -259,12 +223,6 @@ int CardRecognizer::recognizeCardLevel(const cv::Mat& cardMat)
     // 提取星级ROI区域
     cv::Mat levelRoi = cardMat(cv::Rect(CARD_LEVEL_ROI_X, CARD_LEVEL_ROI_Y, 
                                        CARD_LEVEL_ROI_WIDTH, CARD_LEVEL_ROI_HEIGHT));
-    
-    // 保存ROI图片用于调试
-    // QString debugPath = "error/level_roi_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss") + ".png";
-    // QImage debugImage = cvMatToQImage(levelRoi);
-    // debugImage.save(debugPath);
-    // qDebug() << "Saved level ROI for debugging:" << debugPath;
 
     // 按1-16顺序检查每个星级模板，找到完全匹配时立即退出
     int recognizedLevel = 0;
@@ -314,12 +272,6 @@ bool CardRecognizer::recognizeCardBind(const cv::Mat& cardMat)
     // 提取绑定ROI区域
     cv::Mat bindRoi = cardMat(cv::Rect(CARD_BIND_ROI_X, CARD_BIND_ROI_Y, 
                                       CARD_BIND_ROI_WIDTH, CARD_BIND_ROI_HEIGHT));
-    
-    // 保存ROI图片用于调试
-    // QString debugPath = "error/bind_roi_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss") + ".png";
-    // QImage debugImage = cvMatToQImage(bindRoi);
-    // debugImage.save(debugPath);
-    // qDebug() << "Saved bind ROI for debugging:" << debugPath;
     
     // 转换模板为cv::Mat
     cv::Mat templateMat = qImageToCvMat(m_bindTemplate);

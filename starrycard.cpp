@@ -4727,36 +4727,6 @@ void StarryCard::refreshGameWindow()
     }
 }
 
-// 计算图像的64位平均哈希
-// uint64_t StarryCard::calculateImageHash(const QImage& inputImage) {
-//     // 步骤1: 转换为灰度并缩小到8x8（核心降维）
-//     QImage gray = inputImage.convertToFormat(QImage::Format_Grayscale8);
-//     QImage small = gray.scaled(8, 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-
-//     // 步骤2: 计算像素平均值
-//     quint64 total = 0;
-//     for (int y = 0; y < small.height(); ++y) {
-//         const uchar* scanLine = small.scanLine(y);
-//         for (int x = 0; x < small.width(); ++x) {
-//             total += scanLine[x];
-//         }
-//     }
-//     quint8 average = static_cast<quint8>(total / 64);  // 64像素
-
-//     // 步骤3: 生成哈希值 (大于平均值=1，否则=0)
-//     uint64_t hash = 0;
-//     for (int y = 0; y < small.height(); ++y) {
-//         const uchar* scanLine = small.scanLine(y);
-//         for (int x = 0; x < small.width(); ++x) {
-//             hash <<= 1;  // 左移一位
-//             if (scanLine[x] >= average) {
-//                 hash |= 1;  // 设置最低位为1
-//             }
-//         }
-//     }
-//     return hash;
-// }
-
 // 计算汉明距离 (差异比特数)
 int StarryCard::hammingDistance(uint64_t hash1, uint64_t hash2) {
     uint64_t xorResult = hash1 ^ hash2;
@@ -4777,15 +4747,8 @@ int StarryCard::matchImages(const QString& path, uint64_t hash) {
         return -1;
     }
     
-    // 统一处理为20x20（输入非20x20时自动缩放）
-    // if (imgTemplate.size() != QSize(20, 20)) {
-    //     imgTemplate = imgTemplate.scaled(20, 20, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-    // }
-    
     uint64_t hashTemplate = calculateImageHash(imgTemplate).toULongLong();
 
-    qDebug() << "hashTemplate:" << hashTemplate << "hash:" << hash;
-    
     return hammingDistance(hash, hashTemplate);
 }
 
