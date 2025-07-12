@@ -116,10 +116,10 @@ bool CardRecognizer::loadTemplates()
             QString cardName = QFileInfo(cardFile).baseName();
             templateManager.addTemplate(cardName.toStdString(), hash);
             
-            qDebug() << "Successfully loaded and hashed template:" << cardName
-                     << "\nTemplate size:" << cardTemplate.cols << "x" << cardTemplate.rows
-                     << "\nROI size:" << roiTemplate.cols << "x" << roiTemplate.rows
-                     << "\nHash size:" << hash.cols << "x" << hash.rows
+            // qDebug() << "Successfully loaded and hashed template:" << cardName
+            //          << "\nTemplate size:" << cardTemplate.cols << "x" << cardTemplate.rows
+            //          << "\nROI size:" << roiTemplate.cols << "x" << roiTemplate.rows
+            //          << "\nHash size:" << hash.cols << "x" << hash.rows;
 
             // 保存调试图像
             QString debugDir = getAppDataPath() + "/template_debug";
@@ -191,7 +191,7 @@ void CardRecognizer::loadLevelTemplates()
         QImage levelImage(filePath);
         if (!levelImage.isNull()) {
             m_levelTemplates[levelStr] = levelImage;
-            qDebug() << "Loaded level template:" << levelStr;
+            // qDebug() << "Loaded level template:" << levelStr;
         } else {
             qWarning() << "Failed to load level template:" << filePath;
         }

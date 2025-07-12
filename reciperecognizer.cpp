@@ -245,17 +245,8 @@ bool RecipeRecognizer::loadRecipeTemplates()
         QVector<double> histogram = calculateRecipeHistogram(template_image);
         recipeTemplateHistograms[recipeType] = histogram;
         
-        qDebug() << "成功加载配方模板:" << recipeType << "颜色直方图特征数:" << histogram.size();
+        // qDebug() << "成功加载配方模板:" << recipeType << "颜色直方图特征数:" << histogram.size();
         addLog(QString("成功加载配方模板: %1").arg(recipeType), LogType::Info);
-        
-        // 保存模板图像用于调试
-        QString debugDir = QCoreApplication::applicationDirPath() + "/debug_recipe";
-        QDir().mkpath(debugDir);
-        
-        QString templatePath = QString("%1/template_%2.png").arg(debugDir).arg(recipeType);
-        if (template_image.save(templatePath)) {
-            qDebug() << "配方模板图像已保存:" << templatePath;
-        }
     }
     
     recipeTemplatesLoaded = !recipeTemplateHistograms.isEmpty();

@@ -38,6 +38,7 @@
 #include <QTextCursor>
 #include <QtMath>
 #include <QScrollBar>
+#include <QRegularExpression>
 
 // RGB颜色分量提取宏定义(rgb为0x00RRGGBB类型)
 #define bgrRValue(rgb)      (LOBYTE((rgb)>>16))  // 红色分量
@@ -84,7 +85,7 @@ StarryCard::StarryCard(QWidget *parent)
                 qDebug() << "Created directory:" << dir;
             }
         } else {
-            qDebug() << "Directory exists:" << dir;
+            // qDebug() << "Directory exists:" << dir;
         }
     }
 
@@ -106,6 +107,9 @@ StarryCard::StarryCard(QWidget *parent)
     
     // 初始化香料识别模板
     loadSpiceTemplates();
+    
+    // 初始化位置模板
+    loadPositionTemplates();
     
     // 初始化 RecipeRecognizer
     recipeRecognizer = new RecipeRecognizer();
@@ -3232,22 +3236,11 @@ bool StarryCard::loadCloverTemplates()
         QString hash = calculateImageHash(template_image, roi);
         cloverTemplateHashes[cloverTypes[i]] = hash;
         
-        qDebug() << "成功加载四叶草模板:" << cloverTypes[i] << "颜色直方图特征数:" << histogram.size();
+        // qDebug() << "成功加载四叶草模板:" << cloverTypes[i] << "颜色直方图特征数:" << histogram.size();
         
         // 保存模板图像和ROI区域用于调试
         QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
         QDir().mkpath(debugDir);
-        
-        QString templatePath = QString("%1/template_%2.png").arg(debugDir).arg(cloverTypes[i]);
-        if (template_image.save(templatePath)) {
-            qDebug() << "模板图像已保存:" << templatePath;
-        }
-        
-        QImage templateROI = template_image.copy(roi);
-        QString templateROIPath = QString("%1/template_roi_%2.png").arg(debugDir).arg(cloverTypes[i]);
-        if (templateROI.save(templateROIPath)) {
-            qDebug() << "模板ROI区域已保存:" << templateROIPath;
-        }
     }
     
     cloverTemplatesLoaded = !cloverTemplateHistograms.isEmpty();
@@ -3281,11 +3274,6 @@ bool StarryCard::loadBindStateTemplate()
     // 保存绑定状态模板用于调试
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
     QDir().mkpath(debugDir);
-    
-    QString bindTemplatePath = QString("%1/bind_state_template.png").arg(debugDir);
-    if (bindStateTemplate.save(bindTemplatePath)) {
-        qDebug() << "绑定状态模板已保存:" << bindTemplatePath;
-    }
     
     return true;
 }
@@ -3587,7 +3575,7 @@ bool StarryCard::loadPageTemplates()
     
     // 计算翻页到顶部模板的颜色直方图
     pageUpHistogram = calculateColorHistogram(pageUpTemplate);
-    qDebug() << "翻页到顶部模板加载成功，颜色直方图特征数:" << pageUpHistogram.size();
+    // qDebug() << "翻页到顶部模板加载成功，颜色直方图特征数:" << pageUpHistogram.size();
     
     // 加载翻页到底部模板
     QString pageDownPath = ":/items/position/PageDown.png";
@@ -3601,7 +3589,7 @@ bool StarryCard::loadPageTemplates()
     
     // 计算翻页到底部模板的颜色直方图
     pageDownHistogram = calculateColorHistogram(pageDownTemplate);
-    qDebug() << "翻页到底部模板加载成功，颜色直方图特征数:" << pageDownHistogram.size();
+    // qDebug() << "翻页到底部模板加载成功，颜色直方图特征数:" << pageDownHistogram.size();
     
     pageTemplatesLoaded = true;
     addLog("翻页模板加载成功", LogType::Success);
@@ -3610,17 +3598,57 @@ bool StarryCard::loadPageTemplates()
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
     QDir().mkpath(debugDir);
     
-    QString pageUpDebugPath = QString("%1/page_up_template.png").arg(debugDir);
-    if (pageUpTemplate.save(pageUpDebugPath)) {
-        qDebug() << "翻页到顶部模板已保存:" << pageUpDebugPath;
-    }
-    
-    QString pageDownDebugPath = QString("%1/page_down_template.png").arg(debugDir);
-    if (pageDownTemplate.save(pageDownDebugPath)) {
-        qDebug() << "翻页到底部模板已保存:" << pageDownDebugPath;
-    }
-    
     return true;
+}
+
+void StarryCard::loadPositionTemplates()
+{
+    positionTemplateHashes.clear();
+    
+    // 使用Qt资源系统加载位置模板
+    // 基于resources_position.qrc中的文件列表
+    QStringList positionFiles = {
+        ":/items/position/(178,96)排行.png",
+        ":/items/position/(675,556)合成屋.png"
+    };
+    
+    for (const QString& filePath : positionFiles) {
+        // 从资源路径中提取文件名
+        QString fileName = QFileInfo(filePath).fileName();
+        
+        // 只处理以"("开头的文件
+        if (!fileName.startsWith("(")) {
+            continue;
+        }
+        
+        // 解析文件名获取坐标 - 文件名格式: "(x,y)描述.png"
+        QRegularExpression regex("\\((\\d+),(\\d+)\\)(.*)\\.");
+        QRegularExpressionMatch match = regex.match(fileName);
+        
+        if (match.hasMatch()) {
+            int x = match.captured(1).toInt();
+            int y = match.captured(2).toInt();
+            QString description = match.captured(3);
+            
+            // 从Qt资源系统加载图片文件
+            QImage img(filePath);
+            if (img.isNull()) {
+                qDebug() << "图片加载失败:" << filePath;
+                continue;
+            }
+            
+            // 计算哈希值并存储，键为去除坐标信息的文件名
+            QString hash = calculateImageHash(img);
+            positionTemplateHashes[description] = hash;
+            qDebug() << "位置名称:" << description << "哈希值:" << hash;
+        }
+        else
+        {
+            qDebug() << "正则表达式匹配失败，文件名:" << fileName;
+        }
+    }
+    
+    qDebug() << "位置模板加载完成，总数:" << positionTemplateHashes.size();
 }
 
 bool StarryCard::isPageAtTop()
@@ -3651,10 +3679,10 @@ bool StarryCard::isPageAtTop()
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
     QDir().mkpath(debugDir);
     
-    QString checkImagePath = QString("%1/page_top_check_%2.png").arg(debugDir).arg(topCheckCount);
-    if (pageCheckImage.save(checkImagePath)) {
-        qDebug() << "翻页顶部检测图像已保存:" << checkImagePath;
-    }
+    // QString checkImagePath = QString("%1/page_top_check_%2.png").arg(debugDir).arg(topCheckCount);
+    // if (pageCheckImage.save(checkImagePath)) {
+    //     qDebug() << "翻页顶部检测图像已保存:" << checkImagePath;
+    // }
     
     // 计算颜色直方图相似度
     QVector<double> currentHistogram = calculateColorHistogram(pageCheckImage);
@@ -3699,10 +3727,10 @@ bool StarryCard::isPageAtBottom()
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
     QDir().mkpath(debugDir);
     
-    QString checkImagePath = QString("%1/page_bottom_check_%2.png").arg(debugDir).arg(bottomCheckCount);
-    if (pageCheckImage.save(checkImagePath)) {
-        qDebug() << "翻页底部检测图像已保存:" << checkImagePath;
-    }
+    // QString checkImagePath = QString("%1/page_bottom_check_%2.png").arg(debugDir).arg(bottomCheckCount);
+    // if (pageCheckImage.save(checkImagePath)) {
+    //     qDebug() << "翻页底部检测图像已保存:" << checkImagePath;
+    // }
     
     // 计算颜色直方图相似度
     QVector<double> currentHistogram = calculateColorHistogram(pageCheckImage);
@@ -3822,22 +3850,7 @@ bool StarryCard::loadSpiceTemplates()
         QString hash = calculateImageHash(template_image, roi);
         spiceTemplateHashes[spiceType] = hash;
         
-        qDebug() << "成功加载香料模板:" << spiceType << "颜色直方图特征数:" << histogram.size();
-        
-        // 保存模板图像用于调试
-        QString debugDir = QCoreApplication::applicationDirPath() + "/debug_spice";
-        QDir().mkpath(debugDir);
-        
-        QString templatePath = QString("%1/template_%2.png").arg(debugDir).arg(spiceType);
-        if (template_image.save(templatePath)) {
-            qDebug() << "香料模板图像已保存:" << templatePath;
-        }
-        
-        QImage templateROI = template_image.copy(roi);
-        QString templateROIPath = QString("%1/template_roi_%2.png").arg(debugDir).arg(spiceType);
-        if (templateROI.save(templateROIPath)) {
-            qDebug() << "香料模板ROI区域已保存:" << templateROIPath;
-        }
+        // qDebug() << "成功加载香料模板:" << spiceType << "颜色直方图特征数:" << histogram.size();
     }
     
     spiceTemplatesLoaded = !spiceTemplateHistograms.isEmpty();
@@ -4765,11 +4778,6 @@ BOOL StarryCard::closeHealthTip()
     QImage imgTemplate(healthTipPath);
     QString hashHealthyTip = calculateImageHash(imgTemplate);
 
-    // 世界地图模板
-    QString rankPath = ":/items/position/rank.png";
-    QImage imgRank(rankPath);
-    QString hashRank = calculateImageHash(imgRank);
-
     // 等待健康提示出现，最多等待10秒
     for (int i = 0; i < 10; i++)
     {
@@ -4789,7 +4797,7 @@ BOOL StarryCard::closeHealthTip()
             leftClickDPI(hwndGame, 588, 204);
             addLog("点击关闭健康提示成功", LogType::Success);
             sleepByQElapsedTimer(100); // 等待100毫秒
-            if(hashRankCurrent != hashRank) // 健康提示出现且排行榜未出现，视为有假期特惠挡住
+            if(hashRankCurrent != positionTemplateHashes["排行"]) // 健康提示出现且排行榜未出现，视为有假期特惠挡住
             {
                 // 点击关闭假期特惠
                 leftClickDPI(hwndGame, 840, 44);

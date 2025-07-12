@@ -1,10 +1,11 @@
 <?xml version="1.0" ?>
 <RCC version="1.0">
     <qresource prefix="/">
+        <file>items/position/(178,96)排行.png</file>
+        <file>items/position/(675,556)合成屋.png</file>
         <file>items/position/healthyTip.png</file>
         <file>items/position/line.png</file>
         <file>items/position/PageDown.png</file>
         <file>items/position/PageUp.png</file>
-        <file>items/position/rank.png</file>
     </qresource>
 </RCC>

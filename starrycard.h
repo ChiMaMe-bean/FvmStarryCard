@@ -189,6 +189,9 @@ private:
     bool loadPageTemplates();
     bool isPageAtTop();
     bool isPageAtBottom();
+    
+    // 位置模板相关方法
+    void loadPositionTemplates();
 
     // 配方识别相关方法（已迁移到 RecipeRecognizer）
     QStringList getAvailableRecipeTypes() const; // 获取所有可用的配方类型
@@ -277,6 +280,9 @@ private:
     QVector<double> pageUpHistogram;    // 翻页到顶部颜色直方图
     QVector<double> pageDownHistogram;  // 翻页到底部颜色直方图
     bool pageTemplatesLoaded = false;
+
+    // 位置模板相关数据
+    QHash<QString, QString> positionTemplateHashes; // 位置模板名称 -> 哈希值
 
     RecipeRecognizer* recipeRecognizer; // 新增成员变量
 
