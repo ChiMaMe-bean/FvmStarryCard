@@ -2,8 +2,11 @@
 <RCC version="1.0">
     <qresource prefix="/">
         <file>items/icons/downArrow.svg</file>
+        <file>items/icons/downarrow_1f.svg</file>
         <file>items/icons/icon128.ico</file>
         <file>items/icons/icon256.ico</file>
         <file>items/icons/icon512.ico</file>
+        <file>items/icons/uparrow_1f.svg</file>
+        <file>items/icons/日志.svg</file>
     </qresource>
 </RCC>

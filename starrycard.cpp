@@ -39,6 +39,7 @@
 #include <QtMath>
 #include <QScrollBar>
 #include <QRegularExpression>
+#include <algorithm>
 
 // RGB颜色分量提取宏定义(rgb为0x00RRGGBB类型)
 #define bgrRValue(rgb)      (LOBYTE((rgb)>>16))  // 红色分量
@@ -48,6 +49,11 @@
 
 // 定义全局变量，用于存储 DPI 信息
 int DPI = 96;  // 默认 DPI 值为 96，即 100% 缩  放
+
+// 定义静态常量
+const QPoint StarryCard::CARD_ENHANCE_POS(94, 326);      // 卡片强化按钮位置
+const QPoint StarryCard::CARD_PRODUCE_POS(94, 260);      // 卡片制作按钮位置
+const QPoint StarryCard::SYNTHESIS_HOUSE_POS(675, 556);  // 合成屋按钮位置
 
 StarryCard::StarryCard(QWidget *parent)
     : QMainWindow(parent)
@@ -94,6 +100,12 @@ StarryCard::StarryCard(QWidget *parent)
 
     // 初始设置默认背景
     setBackground(defaultBgPath);
+    
+    // 初始化延迟保存定时器
+    configSaveTimer = new QTimer(this);
+    configSaveTimer->setSingleShot(true); // 只触发一次
+    configSaveTimer->setInterval(800); // 800ms延迟，避免频繁保存
+    connect(configSaveTimer, &QTimer::timeout, this, &StarryCard::onConfigSaveTimeout);
 
     // 初始化UI
     setupUI();
@@ -122,7 +134,7 @@ StarryCard::StarryCard(QWidget *parent)
         return leftClickDPI(hwnd, x, y);
     });
     recipeRecognizer->setCaptureCallback([this]() -> QImage {
-        return captureGameWindow();
+        return captureWindowByHandle(hwndGame,"主页面");
     });
     recipeRecognizer->setSleepCallback([this](int ms) {
         sleepByQElapsedTimer(ms);
@@ -462,7 +474,7 @@ void StarryCard::setupUI()
     centerStack->setCurrentIndex(0);
 
     // 连接按钮组的信号到页面切换
-    connect(buttonGroup, &QButtonGroup::buttonClicked, 
+    connect(buttonGroup, &QButtonGroup::buttonClicked, this,
             [this](QAbstractButton* button) {
                 centerStack->setCurrentIndex(buttonGroup->id(button));
             });
@@ -588,8 +600,8 @@ void StarryCard::setupUI()
     rightLayout->addWidget(debugLabel);
     
     debugCombo = new QComboBox();
-    debugCombo->addItems({"配方识别", "卡片识别", "四叶草识别", "香料识别", "刷新测试", "全部功能"});
-    debugCombo->setCurrentText("配方识别"); // 设置默认选择
+    debugCombo->addItems({"位置跳转", "配方识别", "卡片识别", "四叶草识别", "香料识别", "刷新测试", "全部功能"});
+    debugCombo->setCurrentText("位置跳转"); // 设置默认选择
     debugCombo->setStyleSheet(R"(
         QComboBox {
             background-color: rgba(255, 255, 255, 220);
@@ -767,10 +779,6 @@ void StarryCard::setupUI()
     connect(enhancementBtn, &QPushButton::clicked, this, &StarryCard::startEnhancement);
     rightLayout->addWidget(enhancementBtn);
 
-    // 创建定时器
-    enhancementTimer = new QTimer(this);
-    connect(enhancementTimer, &QTimer::timeout, this, &StarryCard::performEnhancement);
-
     // 将三个区域添加到水平布局
     topLayout->addWidget(leftWidget, 1);
     topLayout->addWidget(centerStack, 8);
@@ -782,10 +790,6 @@ void StarryCard::setupUI()
 
 StarryCard::~StarryCard()
 {
-    if (enhancementTimer) {
-        enhancementTimer->stop();
-    }
-    
     // 清理全局像素数据
     if (globalPixelData) {
         delete[] globalPixelData;
@@ -794,7 +798,24 @@ StarryCard::~StarryCard()
         globalBitmapHeight = 0;
     }
 
-    delete recipeRecognizer;
+    // 清理RecipeRecognizer
+    if (recipeRecognizer) {
+        delete recipeRecognizer;
+        recipeRecognizer = nullptr;
+    }
+
+    // 清理CardRecognizer
+    if (cardRecognizer) {
+        delete cardRecognizer;
+        cardRecognizer = nullptr;
+    }
+
+    // 清理定时器
+    if (configSaveTimer) {
+        configSaveTimer->stop();
+        delete configSaveTimer;
+        configSaveTimer = nullptr;
+    }
 }
 
 void StarryCard::startMouseTracking() {
@@ -960,23 +981,23 @@ void StarryCard::startEnhancement()
         return;
     }
 
-    if (!isEnhancing && enhancementBtn && enhancementTimer) {
+    if (!isEnhancing && enhancementBtn) {
         // 预先加载所需的卡片类型
-        requiredCardTypesForEnhancement = getRequiredCardTypesFromConfig();
+        requiredCardTypes = getRequiredCardTypesFromConfig();
         
-        if (requiredCardTypesForEnhancement.isEmpty()) {
+        if (requiredCardTypes.isEmpty()) {
             QMessageBox::warning(this, "警告", "配置文件中未找到有效的卡片类型配置！\n请先在卡片设置中配置主卡和副卡类型。");
             addLog("强化流程启动失败：未找到有效的卡片类型配置", LogType::Error);
             return;
         }
         
-        addLog(QString("强化流程准备就绪，将识别以下卡片类型: %1").arg(requiredCardTypesForEnhancement.join(", ")), LogType::Info);
+        addLog(QString("强化流程准备就绪，将识别以下卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
         
         isEnhancing = true;
-        currentEnhancementLevel = 0; // 重置当前强化等级
         enhancementBtn->setText("停止强化");
-        enhancementTimer->start(1000);
-        addLog(QString("开始强化流程，强化范围: %1-%2级").arg(getMinEnhancementLevel()).arg(getMaxEnhancementLevel()), LogType::Success);
+        addLog("开始强化流程", LogType::Success);
+        
+        performEnhancement();
     } else {
         stopEnhancement();
     }
@@ -984,16 +1005,12 @@ void StarryCard::startEnhancement()
 
 void StarryCard::stopEnhancement()
 {
-    if (enhancementBtn && enhancementTimer) {
+    if (enhancementBtn) {
         isEnhancing = false;
         enhancementBtn->setText("开始强化");
-        enhancementTimer->stop();
         
         // 清空缓存的卡片类型
-        requiredCardTypesForEnhancement.clear();
-        
-        // 重置当前强化等级
-        currentEnhancementLevel = 0;
+        requiredCardTypes.clear();
         
         addLog("停止强化流程", LogType::Warning);
     }
@@ -1007,28 +1024,9 @@ void StarryCard::performEnhancement()
         addLog("目标窗口已失效，强化已停止！", LogType::Error);
         return;
     }
-
-    // 检查是否达到最高强化等级
-    int maxLevel = getMaxEnhancementLevel();
-    int minLevel = getMinEnhancementLevel();
     
-    // 如果是第一次强化，从最低等级开始
-    if (currentEnhancementLevel == 0) {
-        currentEnhancementLevel = minLevel - 1; // 设置为比最低等级低1，下面会加1
-    }
-    
-    if (currentEnhancementLevel >= maxLevel) {
-        stopEnhancement();
-        addLog(QString("已达到设置的最高强化等级 %1级，强化自动停止").arg(maxLevel), LogType::Success);
-        QMessageBox::information(this, "强化完成", QString("已达到设置的最高强化等级 %1级，强化已停止！").arg(maxLevel));
-        return;
-    }
-
-    // 更新当前强化等级（这里简化为每次执行加1，实际应用中可能需要更复杂的逻辑）
-    currentEnhancementLevel++;
-
     leftClickDPI(hwndGame, 284, 427);
-    addLog(QString("执行强化操作：等级 %1 -> %2 (强化范围: %3-%4级)").arg(currentEnhancementLevel-1).arg(currentEnhancementLevel).arg(minLevel).arg(maxLevel), LogType::Info);
+    addLog("执行强化操作", LogType::Info);
 }
 
 void StarryCard::trackMousePosition(QPoint pos) {
@@ -1155,7 +1153,7 @@ void StarryCard::updateHandleDisplay(HWND hwnd) {
 
     // 找到调试按钮并更新其状态
     QList<QPushButton*> buttons = findChildren<QPushButton*>();
-    for (QPushButton* btn : buttons) {
+    for (const auto& btn : std::as_const(buttons)) {
         if (btn->text() == "开始调试") {
             btn->setEnabled(hwnd != nullptr);
             break;
@@ -1166,7 +1164,7 @@ void StarryCard::updateHandleDisplay(HWND hwnd) {
         QString title = WindowUtils::getWindowTitle(hwndHall); // 获取大厅窗口标题
         handleDisplayEdit->setText(QString::number(reinterpret_cast<quintptr>(hwnd), 10)); // 显示游戏窗口句柄
         windowTitleLabel->setText(title);
-        addLog(QString("已绑定窗口：%1，句柄：%2").arg(title).arg(QString::number(reinterpret_cast<quintptr>(hwnd), 10)), LogType::Success);
+        addLog(QString("已绑定窗口：%1，句柄：%2").arg(title, QString::number(reinterpret_cast<quintptr>(hwnd), 10)), LogType::Success);
     } else {
         handleDisplayEdit->setText("未获取到句柄");
         windowTitleLabel->setText("");
@@ -1200,9 +1198,7 @@ void StarryCard::addLog(const QString& message, LogType type)
     
     // 格式化日志消息
     QString formattedMessage = QString("<div style='%1'>[%2] %3</div>")
-                                .arg(colorStyle)
-                                .arg(timestamp)
-                                .arg(message);
+                                .arg(colorStyle, timestamp, message);
     
     // 添加新日志
     logTextEdit->append(formattedMessage);
@@ -1267,94 +1263,6 @@ int StarryCard::getDPIFromDC()
     return dpi;
 }
 
-QImage StarryCard::captureGameWindow()
-{
-    if (!hwndGame || !IsWindow(hwndGame)) {
-        addLog("无效的窗口句柄", LogType::Error);
-        return QImage();
-    }
-
-    // 获取窗口位置和大小
-    RECT rect;
-    if (!GetWindowRect(hwndGame, &rect)) {
-        addLog("获取窗口位置失败", LogType::Error);
-        return QImage();
-    }
-
-    // 输出窗口信息
-    addLog(QString("窗口位置：(%1, %2) - (%3, %4)").arg(rect.left).arg(rect.top).arg(rect.right).arg(rect.bottom), LogType::Info);
-    
-    // 获取窗口DC
-    HDC hdcWindow = GetDC(hwndGame);
-    if (!hdcWindow) {
-        addLog("获取窗口DC失败", LogType::Error);
-        return QImage();
-    }
-
-    // 创建兼容DC和位图
-    HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
-    if (!hdcMemDC) {
-        addLog("创建兼容DC失败", LogType::Error);
-        ReleaseDC(hwndGame, hdcWindow);
-        return QImage();
-    }
-
-    int width = rect.right - rect.left;
-    int height = rect.bottom - rect.top;
-    
-    HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
-    if (!hBitmap) {
-        addLog("创建兼容位图失败", LogType::Error);
-        DeleteDC(hdcMemDC);
-        ReleaseDC(hwndGame, hdcWindow);
-        return QImage();
-    }
-
-    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMemDC, hBitmap);
-
-    // 复制窗口内容到位图
-    if (!BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY)) {
-        addLog("复制窗口内容失败", LogType::Error);
-        SelectObject(hdcMemDC, hOldBitmap);
-        DeleteObject(hBitmap);
-        DeleteDC(hdcMemDC);
-        ReleaseDC(hwndGame, hdcWindow);
-        return QImage();
-    }
-
-    // 转换为QImage
-    QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
-    
-    // 设置BITMAPINFO结构
-    BITMAPINFO bmi;
-    ZeroMemory(&bmi, sizeof(BITMAPINFO));
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = width;
-    bmi.bmiHeader.biHeight = -height; // 负值表示自上而下的位图
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-
-    // 获取位图数据
-    if (!GetDIBits(hdcMemDC, hBitmap, 0, height, image.bits(), &bmi, DIB_RGB_COLORS)) {
-        addLog("获取位图数据失败", LogType::Error);
-        SelectObject(hdcMemDC, hOldBitmap);
-        DeleteObject(hBitmap);
-        DeleteDC(hdcMemDC);
-        ReleaseDC(hwndGame, hdcWindow);
-        return QImage();
-    }
-
-    // 清理资源
-    SelectObject(hdcMemDC, hOldBitmap);
-    DeleteObject(hBitmap);
-    DeleteDC(hdcMemDC);
-    ReleaseDC(hwndGame, hdcWindow);
-
-    addLog(QString("成功截取窗口图像：%1x%2").arg(width).arg(height), LogType::Success);
-    return image;
-}
-
 QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
 {
     if (!hwnd || !IsWindow(hwnd)) {
@@ -1364,7 +1272,14 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
 
     // 获取窗口位置和大小
     RECT rect;
-    if (!GetWindowRect(hwnd, &rect)) {
+    if(windowName == "主页面") // 主页面截图区域
+    {
+        rect.left = 0;
+        rect.top = 0;
+        rect.right = 950;
+        rect.bottom = 596;
+    }
+    else if (!GetWindowRect(hwnd, &rect)) {
         addLog(QString("获取窗口位置失败: %1").arg(windowName), LogType::Error);
         return QImage();
     }
@@ -1496,13 +1411,15 @@ QImage StarryCard::captureImageRegion(const QImage& sourceImage, const QRect& re
         if (!baseFilename.endsWith(".png", Qt::CaseInsensitive)) {
             baseFilename += ".png";
         }
-        saveFilename = QString("%1/%2").arg(screenshotsDir).arg(baseFilename);
+        saveFilename = QString("%1/%2").arg(screenshotsDir, baseFilename);
     }
     
     // 保存截取的图像
     if (regionImage.save(saveFilename)) {
         qDebug() << QString("区域图像保存成功：%1 (尺寸：%2x%3)")
-                    .arg(saveFilename).arg(regionImage.width()).arg(regionImage.height());
+                    .arg(saveFilename,
+                         QString::number(regionImage.width()),
+                         QString::number(regionImage.height()));
     } else {
         qDebug() << QString("区域图像保存失败：%1").arg(saveFilename);
         // 即使保存失败，仍然返回截取到的图像
@@ -1525,17 +1442,12 @@ void StarryCard::showRecognitionResults(const std::vector<CardInfo>& results)
 
 void StarryCard::onCaptureAndRecognize()
 {
-    if (!hwndGame || !IsWindow(hwndGame)) {
-        QMessageBox::warning(this, "错误", "请先绑定有效的游戏窗口！");
-        return;
-    }
-
     if (!IsGameWindowVisible(hwndGame)) {
         QMessageBox::warning(this, "错误", "游戏窗口不可见，请先打开游戏窗口！");
         return;
     }
 
-    QImage screenshot = captureGameWindow();
+    QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
     if (screenshot.isNull()) {
         QMessageBox::warning(this, "错误", "截图失败");
         return;
@@ -1556,33 +1468,18 @@ void StarryCard::onCaptureAndRecognize()
         }
     }
 
-    // 生成带时间戳的文件名
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
-    QString filename = QString("%1/screenshot_%2.png").arg(screenshotsDir).arg(timestamp);
-
-    addLog(QString("正在保存截图到：%1").arg(filename), LogType::Info);
+    // 生成固定的文件名
+    QString filename = QString("%1/screenshot_main.png").arg(screenshotsDir);
 
     // 保存截图
     if (screenshot.save(filename)) {
         addLog("截图保存成功", LogType::Success);
-        
-        // 验证文件是否真的被创建
-        QFileInfo checkFile(filename);
-        if (checkFile.exists() && checkFile.isFile()) {
-            addLog(QString("文件大小：%1 字节").arg(checkFile.size()), LogType::Info);
-        } else {
-            addLog("文件创建验证失败", LogType::Error);
-        }
     } else {
         addLog("截图保存失败", LogType::Error);
         QMessageBox::warning(this, "错误", "无法保存截图");
         return;
     }
 
-    // 调试信息：输出图像信息
-    addLog(QString("图像尺寸：%1x%2").arg(screenshot.width()).arg(screenshot.height()), LogType::Info);
-    addLog(QString("图像格式：%1").arg(screenshot.format()), LogType::Info);
-    
     // 根据调试选择执行相应的功能
     if (!debugCombo) {
         addLog("调试选择下拉框未初始化", LogType::Error);
@@ -1592,9 +1489,12 @@ void StarryCard::onCaptureAndRecognize()
     QString debugMode = debugCombo->currentText();
     addLog(QString("执行调试功能: %1").arg(debugMode), LogType::Info);
     
-    // if (debugMode == "网格线调试" || debugMode == "全部功能") {
-        
-    // }
+    if (debugMode == "位置跳转" || debugMode == "全部功能") {
+        // 执行位置跳转功能
+        addLog("开始位置跳转...", LogType::Info);
+        goToPage(PageType::CardEnhance); // 卡片强化
+        goToPage(PageType::CardProduce); // 卡片制作
+    }
     
     if (debugMode == "配方识别" || debugMode == "全部功能") {
         // 执行网格线调试
@@ -1978,6 +1878,7 @@ QWidget* StarryCard::createEnhancementConfigPage()
             border: 2px solid rgba(33, 150, 243, 200);
         }
         QSpinBox::up-button {
+            image: url(:/items/icons/uparrow_1f.svg);
             background-color: rgba(102, 204, 255, 150);
             border: 1px solid rgba(102, 204, 255, 200);
             border-radius: 3px;
@@ -1988,6 +1889,7 @@ QWidget* StarryCard::createEnhancementConfigPage()
             background-color: rgba(102, 204, 255, 200);
         }
         QSpinBox::down-button {
+            image: url(:/items/icons/downarrow_1f.svg);
             background-color: rgba(102, 204, 255, 150);
             border: 1px solid rgba(102, 204, 255, 200);
             border-radius: 3px;
@@ -2040,6 +1942,7 @@ QWidget* StarryCard::createEnhancementConfigPage()
             border: 2px solid rgba(33, 150, 243, 200);
         }
         QSpinBox::up-button {
+            image: url(:/items/icons/uparrow_1f.svg);
             background-color: rgba(102, 204, 255, 150);
             border: 1px solid rgba(102, 204, 255, 200);
             border-radius: 3px;
@@ -2050,6 +1953,7 @@ QWidget* StarryCard::createEnhancementConfigPage()
             background-color: rgba(102, 204, 255, 200);
         }
         QSpinBox::down-button {
+            image: url(:/items/icons/downarrow_1f.svg);
             background-color: rgba(102, 204, 255, 150);
             border: 1px solid rgba(102, 204, 255, 200);
             border-radius: 3px;
@@ -2200,39 +2104,11 @@ void StarryCard::onMaxEnhancementLevelChanged()
     // 更新最低强化等级SpinBox的最大值
     minEnhancementLevelSpinBox->setMaximum(maxLevel);
     
-    // 更新表格显示，禁用低于最低等级和超过最高等级的行
-    if (enhancementTable) {
-        for (int row = 0; row < 14; ++row) {
-            bool enabled = (row + 1) >= minLevel && (row + 1) <= maxLevel;
-            
-            // 设置行的启用状态
-            for (int col = 0; col < enhancementTable->columnCount(); ++col) {
-                QWidget* widget = enhancementTable->cellWidget(row, col);
-                if (widget) {
-                    widget->setEnabled(enabled);
-                }
-            }
-            
-            // 设置行的视觉效果
-            for (int col = 0; col < enhancementTable->columnCount(); ++col) {
-                QWidget* widget = enhancementTable->cellWidget(row, col);
-                if (widget) {
-                    if (enabled) {
-                        widget->setStyleSheet(widget->styleSheet().replace("color: #CCCCCC;", "color: #003D7A;"));
-                    } else {
-                        QString currentStyle = widget->styleSheet();
-                        if (!currentStyle.contains("color: #CCCCCC;")) {
-                            currentStyle = currentStyle.replace("color: #003D7A;", "color: #CCCCCC;");
-                            widget->setStyleSheet(currentStyle);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // 更新表格UI状态
+    updateEnhancementTableUI();
     
-    // 保存配置
-    saveEnhancementConfig();
+    // 延迟保存配置，避免频繁I/O操作
+    scheduleConfigSave();
     
     addLog(QString("最高强化等级已设置为: %1级").arg(maxLevel), LogType::Info);
 }
@@ -2253,41 +2129,63 @@ void StarryCard::onMinEnhancementLevelChanged()
     // 更新最高强化等级SpinBox的最小值
     maxEnhancementLevelSpinBox->setMinimum(minLevel);
     
-    // 更新表格显示，禁用低于最低等级和超过最高等级的行
-    if (enhancementTable) {
-        for (int row = 0; row < 14; ++row) {
-            bool enabled = (row + 1) >= minLevel && (row + 1) <= maxLevel;
-            
-            // 设置行的启用状态
-            for (int col = 0; col < enhancementTable->columnCount(); ++col) {
-                QWidget* widget = enhancementTable->cellWidget(row, col);
-                if (widget) {
-                    widget->setEnabled(enabled);
-                }
-            }
-            
-            // 设置行的视觉效果
-            for (int col = 0; col < enhancementTable->columnCount(); ++col) {
-                QWidget* widget = enhancementTable->cellWidget(row, col);
-                if (widget) {
-                    if (enabled) {
-                        widget->setStyleSheet(widget->styleSheet().replace("color: #CCCCCC;", "color: #003D7A;"));
-                    } else {
-                        QString currentStyle = widget->styleSheet();
-                        if (!currentStyle.contains("color: #CCCCCC;")) {
-                            currentStyle = currentStyle.replace("color: #003D7A;", "color: #CCCCCC;");
-                            widget->setStyleSheet(currentStyle);
-                        }
-                    }
+    // 更新表格UI状态
+    updateEnhancementTableUI();
+    
+    // 延迟保存配置，避免频繁I/O操作
+    scheduleConfigSave();
+    
+    addLog(QString("最低强化等级已设置为: %1级").arg(minLevel), LogType::Info);
+}
+
+void StarryCard::scheduleConfigSave()
+{
+    // 重启定时器，如果用户快速点击，会取消之前的保存操作
+    if (configSaveTimer && configSaveTimer->isActive()) {
+        configSaveTimer->stop();
+    }
+    if (configSaveTimer) {
+        configSaveTimer->start();
+    }
+}
+
+void StarryCard::onConfigSaveTimeout()
+{
+    // 定时器超时，真正执行保存操作
+    saveEnhancementConfig();
+}
+
+void StarryCard::updateEnhancementTableUI()
+{
+    if (!enhancementTable || !minEnhancementLevelSpinBox || !maxEnhancementLevelSpinBox) return;
+    
+    int minLevel = minEnhancementLevelSpinBox->value();
+    int maxLevel = maxEnhancementLevelSpinBox->value();
+    
+    // 批量更新表格显示，禁用低于最低等级和超过最高等级的行
+    for (int row = 0; row < 14; ++row) {
+        bool enabled = (row + 1) >= minLevel && (row + 1) <= maxLevel;
+        
+        // 设置行的启用状态和视觉效果
+        for (int col = 0; col < enhancementTable->columnCount(); ++col) {
+            QWidget* widget = enhancementTable->cellWidget(row, col);
+            if (widget) {
+                widget->setEnabled(enabled);
+                
+                // 优化样式表更新 - 只在状态真正改变时更新
+                QString currentStyle = widget->styleSheet();
+                bool isCurrentlyDisabled = currentStyle.contains("color: #CCCCCC;");
+                
+                if (enabled && isCurrentlyDisabled) {
+                    // 从禁用状态恢复到启用状态
+                    widget->setStyleSheet(currentStyle.replace("color: #CCCCCC;", "color: #003D7A;"));
+                } else if (!enabled && !isCurrentlyDisabled) {
+                    // 从启用状态改为禁用状态
+                    widget->setStyleSheet(currentStyle.replace("color: #003D7A;", "color: #CCCCCC;"));
                 }
             }
         }
     }
-    
-    // 保存配置
-    saveEnhancementConfig();
-    
-    addLog(QString("最低强化等级已设置为: %1级").arg(minLevel), LogType::Info);
 }
 
 void StarryCard::saveEnhancementConfig()
@@ -2666,7 +2564,7 @@ QStringList StarryCard::getCardTypes() const
         nameFilters << "*.png" << "*.jpg" << "*.jpeg" << "*.bmp";
         QStringList cardFiles = resourceDir.entryList(nameFilters, QDir::Files);
         
-        for (const QString& cardFile : cardFiles) {
+        for (const auto& cardFile : std::as_const(cardFiles)) {
             QString cardName = QFileInfo(cardFile).baseName();
             cardTypes.append(cardName);
         }
@@ -3478,7 +3376,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     qDebug() << "开始识别当前页的四叶草";
     addLog("开始识别当前页的四叶草", LogType::Info);
     
-    QImage screenshot = captureGameWindow();
+    QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
     if (!screenshot.isNull()) {
         QRect cloverArea(33, 526, 490, 49);
         QImage cloverStrip = screenshot.copy(cloverArea);
@@ -3520,7 +3418,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         sleepByQElapsedTimer(100);
         
         // 只检查第十个位置（翻页后这个位置会更新）
-        QImage screenshotAfterPage = captureGameWindow();
+        QImage screenshotAfterPage = captureWindowByHandle(hwndGame,"主页面");
         if (!screenshotAfterPage.isNull()) {
             QRect cloverAreaAfterPage(33, 526, 490, 49);
             QImage cloverStripAfterPage = screenshotAfterPage.copy(cloverAreaAfterPage);
@@ -3609,7 +3507,9 @@ void StarryCard::loadPositionTemplates()
     // 基于resources_position.qrc中的文件列表
     QStringList positionFiles = {
         ":/items/position/(178,96)排行.png",
-        ":/items/position/(675,556)合成屋.png"
+        ":/items/position/(675,556)合成屋外.png",
+        ":/items/position/(94,260)卡片制作.png",
+        ":/items/position/(94,326)卡片强化.png"
     };
     
     for (const QString& filePath : positionFiles) {
@@ -3622,13 +3522,14 @@ void StarryCard::loadPositionTemplates()
         }
         
         // 解析文件名获取坐标 - 文件名格式: "(x,y)描述.png"
-        QRegularExpression regex("\\((\\d+),(\\d+)\\)(.*)\\.");
+        static const QRegularExpression regex("\\((\\d+),(\\d+)\\)(.*)\\.");
         QRegularExpressionMatch match = regex.match(fileName);
         
         if (match.hasMatch()) {
             int x = match.captured(1).toInt();
             int y = match.captured(2).toInt();
             QString description = match.captured(3);
+            QString key = QString("(%1,%2)%3").arg(x).arg(y).arg(description);
             
             // 从Qt资源系统加载图片文件
             QImage img(filePath);
@@ -3636,11 +3537,17 @@ void StarryCard::loadPositionTemplates()
                 qDebug() << "图片加载失败:" << filePath;
                 continue;
             }
+
+            if(img.rect().width() != 20 || img.rect().height() != 20)
+            {
+                qDebug() << "图片大小不正确:" << filePath;
+                continue;
+            }
             
-            // 计算哈希值并存储，键为去除坐标信息的文件名
-            QString hash = calculateImageHash(img);
-            positionTemplateHashes[description] = hash;
-            qDebug() << "位置名称:" << description << "哈希值:" << hash;
+            // 计算哈希值
+            QString hash = calculateImageHash(img); // 不传入区域，计算整个20*20像素的图片的哈希值
+            positionTemplateHashes[key] = hash;
+            qDebug() << "键:" << key << "哈希值:" << hash;
         }
         else
         {
@@ -3651,6 +3558,83 @@ void StarryCard::loadPositionTemplates()
     qDebug() << "位置模板加载完成，总数:" << positionTemplateHashes.size();
 }
 
+QString StarryCard::recognizeCurrentPosition(QImage screenshot)
+{
+    // 循环遍历所有的位置模板
+    for (auto it = positionTemplateHashes.begin(); it != positionTemplateHashes.end(); ++it) {
+        QString key = it.key();
+        QString templateHash = it.value();
+        
+        // 解析键中的坐标信息 - 格式: "(x,y)描述"
+        static const QRegularExpression regex("\\((\\d+),(\\d+)\\)(.*)");
+        QRegularExpressionMatch match = regex.match(key);
+        
+        if (match.hasMatch()) {
+            int x = match.captured(1).toInt();
+            int y = match.captured(2).toInt();
+            QString description = match.captured(3);
+
+            if(description == "排行")
+            {
+                continue; // 跳过排行位置
+            }
+            
+            // 从截图中截取对应的区域 (20x20像素)
+            QRect region(x, y, 20, 20);
+            
+            // 检查区域是否在截图范围内
+            if (!screenshot.rect().contains(region)) {
+                qDebug() << "区域超出游戏窗口范围，跳过:" << key;
+                continue;
+            }
+            
+            // 截取指定区域
+            QImage regionImage = screenshot.copy(region);
+            if (regionImage.isNull()) {
+                qDebug() << "截取区域失败:" << key;
+                continue;
+            }
+            
+            // 计算该区域的哈希值
+            QString currentHash = calculateImageHash(regionImage);
+            
+            // 与模板哈希值进行比较
+            if (currentHash == templateHash) {
+                qDebug() << "找到匹配的位置模板:" << key;
+                qDebug() << "返回描述:" << description;
+                return key; // 返回位置信息
+            }
+            else
+            {
+                QString appDir = QCoreApplication::applicationDirPath();
+                QString screenshotsDir = appDir + "/screenshots";
+                QDir dir(screenshotsDir);
+                if(!dir.exists())
+                {
+                    dir.mkpath(screenshotsDir);
+                }
+                QString debugDir = screenshotsDir + "/debug_position";
+                QDir().mkpath(debugDir);
+                if(regionImage.save(QString("%1/%2.png").arg(debugDir).arg(key)))
+                {
+                    qDebug() << "截图已保存:" << QString("%1/%2.png").arg(debugDir).arg(key);
+                }
+                else
+                {
+                    qDebug() << "截图保存失败:" << QString("%1/%2.png").arg(debugDir).arg(key);
+                }
+                qDebug() << "未找到匹配的位置模板:" << key;
+            }
+        } else {
+            qDebug() << "无法解析位置模板键:" << key;
+        }
+    }
+    
+    // 没有找到匹配的位置
+    qDebug() << "未找到匹配的位置模板";
+    return QString();
+}
+
 bool StarryCard::isPageAtTop()
 {
     if (!pageTemplatesLoaded || !hwndGame || !IsWindow(hwndGame)) {
@@ -3658,7 +3642,7 @@ bool StarryCard::isPageAtTop()
     }
     
     // 截取游戏窗口
-    QImage screenshot = captureGameWindow();
+    QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
     if (screenshot.isNull()) {
         qDebug() << "截图失败，无法检测翻页状态";
         return false;
@@ -3685,7 +3669,6 @@ bool StarryCard::isPageAtTop()
     // }
     
     // 计算颜色直方图相似度
-    QVector<double> currentHistogram = calculateColorHistogram(pageCheckImage);
     double similarity = calculateColorHistogramSimilarity(pageCheckImage, pageUpTemplate);
     
     qDebug() << "翻页到顶部检测相似度:" << QString::number(similarity, 'f', 4);
@@ -3706,7 +3689,7 @@ bool StarryCard::isPageAtBottom()
     }
     
     // 截取游戏窗口
-    QImage screenshot = captureGameWindow();
+    QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
     if (screenshot.isNull()) {
         qDebug() << "截图失败，无法检测翻页状态";
         return false;
@@ -3733,7 +3716,6 @@ bool StarryCard::isPageAtBottom()
     // }
     
     // 计算颜色直方图相似度
-    QVector<double> currentHistogram = calculateColorHistogram(pageCheckImage);
     double similarity = calculateColorHistogramSimilarity(pageCheckImage, pageDownTemplate);
     
     qDebug() << "翻页到底部检测相似度:" << QString::number(similarity, 'f', 4);
@@ -3908,7 +3890,7 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
     int maxPageAttempts = 20;  // 最大翻页尝试次数
     
     for (int pageAttempt = 0; pageAttempt < maxPageAttempts; ++pageAttempt) {
-        QImage screenshot = captureGameWindow();
+        QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
         if (screenshot.isNull()) {
             addLog("截取游戏窗口失败", LogType::Error);
             continue;
@@ -4648,7 +4630,7 @@ void StarryCard::refreshGameWindow()
         if (!hallImage.isNull()) {
             QString hallFilename = QString("%1/Ahall_window.png").arg(screenshotsDir);
             if (hallImage.save(hallFilename)) {
-                addLog(QString("大厅窗口截图保存成功：%1").arg(hallFilename), LogType::Success);
+                addLog("大厅窗口截图保存成功", LogType::Success);
             } else {
                 addLog("大厅窗口截图保存失败", LogType::Error);
             }
@@ -4661,7 +4643,7 @@ void StarryCard::refreshGameWindow()
         if (!serverImage.isNull()) {
             QString serverFilename = QString("%1/Aserver_window.png").arg(screenshotsDir);
             if (serverImage.save(serverFilename)) {
-                addLog(QString("选服窗口截图保存成功：%1").arg(serverFilename), LogType::Success);
+                addLog("选服窗口截图保存成功", LogType::Success);
             } else {
                 addLog("选服窗口截图保存失败", LogType::Error);
             }
@@ -4765,7 +4747,7 @@ int StarryCard::matchImages(const QString& path, uint64_t hash) {
     return hammingDistance(hash, hashTemplate);
 }
 
-BOOL StarryCard::closeHealthTip()
+BOOL StarryCard::closeHealthTip(uint8_t retryCount)
 {
     if(!IsWindowVisible(hwndGame))
     {
@@ -4779,9 +4761,11 @@ BOOL StarryCard::closeHealthTip()
     QString hashHealthyTip = calculateImageHash(imgTemplate);
 
     // 等待健康提示出现，最多等待10秒
-    for (int i = 0; i < 10; i++)
+    retryCount = retryCount > 10 ? 10 : retryCount;
+    
+    for (int i = 0; i < retryCount; i++)
     {
-        QImage imgGame = captureWindowByHandle(hwndGame);
+        QImage imgGame = captureWindowByHandle(hwndGame,"主页面");
         if (imgGame.isNull())
         {
             addLog("获取游戏窗口截图失败", LogType::Error);
@@ -4797,7 +4781,7 @@ BOOL StarryCard::closeHealthTip()
             leftClickDPI(hwndGame, 588, 204);
             addLog("点击关闭健康提示成功", LogType::Success);
             sleepByQElapsedTimer(100); // 等待100毫秒
-            if(hashRankCurrent != positionTemplateHashes["排行"]) // 健康提示出现且排行榜未出现，视为有假期特惠挡住
+            if(hashRankCurrent != positionTemplateHashes["(178,96)排行"]) // 健康提示出现且排行榜未出现，视为有假期特惠挡住
             {
                 // 点击关闭假期特惠
                 leftClickDPI(hwndGame, 840, 44);
@@ -4808,5 +4792,96 @@ BOOL StarryCard::closeHealthTip()
         sleepByQElapsedTimer(1000);
     }
     addLog("健康提示未显示，关闭失败", LogType::Error);
+    return FALSE;
+}
+
+// BOOL StarryCard::goToPageCardEnhance(uint8_t retryCount)
+// {
+//     for(int i = 0; i < retryCount; i++)
+//     {
+//         QImage screenshot = captureWindowByHandle(hwndGame);
+//         QString position = recognizeCurrentPosition(screenshot);
+//         if(position == "(94,326)卡片强化")
+//         {
+//             addLog("成功前往卡片强化页面", LogType::Success);
+//             return TRUE; // 已经是卡片强化页面，直接返回
+//         }
+//         else if(position == "(94,260)卡片制作")
+//         {
+//             leftClickDPI(hwndGame, CARD_ENHANCE_POS.x(), CARD_ENHANCE_POS.y()); //点击卡片强化按钮
+//         }
+//         else if(position == "(675,556)合成屋外")
+//         {
+//             leftClickDPI(hwndGame, SYNTHESIS_HOUSE_POS.x(), SYNTHESIS_HOUSE_POS.y()); //点击合成屋按钮
+//         }
+//         sleepByQElapsedTimer(300);
+//     }
+//     QMessageBox::warning(this, "提示", "前往卡片强化页面失败");
+//     return FALSE;
+// }  
+
+// BOOL StarryCard::goToPageCardProduce(uint8_t retryCount)
+// {
+//     for(int i = 0; i < retryCount; i++)
+//     {
+//         QImage screenshot = captureWindowByHandle(hwndGame);
+//         QString position = recognizeCurrentPosition(screenshot);
+
+//         if(position == "(94,260)卡片制作")
+//         {
+//             addLog("成功前往卡片制作页面", LogType::Success);
+//             return TRUE; // 已经是卡片制作页面，直接返回
+//         }
+//         else if(position == "(94,326)卡片强化")
+//         {
+//             leftClickDPI(hwndGame, CARD_PRODUCE_POS.x(), CARD_PRODUCE_POS.y()); //点击卡片制作按钮
+//         }
+//         else if(position == "(675,556)合成屋外")
+//         {
+//             leftClickDPI(hwndGame, SYNTHESIS_HOUSE_POS.x(), SYNTHESIS_HOUSE_POS.y()); //点击合成屋按钮
+//         }
+//         sleepByQElapsedTimer(300);
+//     }
+//     QMessageBox::warning(this, "提示", "前往卡片制作页面失败");
+//     return FALSE;
+// }
+
+BOOL StarryCard::goToPage(PageType targetPage, uint8_t retryCount)
+{
+    QString targetPageName;
+    if(targetPage == PageType::CardEnhance)
+    {
+        targetPageName = "卡片强化";
+    }
+    else if(targetPage == PageType::CardProduce)
+    {
+        targetPageName = "卡片制作";
+    }
+
+    for(int i = 0; i < retryCount; i++)
+    {
+        QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
+        QString position = recognizeCurrentPosition(screenshot);
+
+        if(position.contains(targetPageName))
+        {
+            addLog("成功前往" + targetPageName + "页面", LogType::Success);
+            return TRUE;
+        }
+        else if(position == "(94,260)卡片制作")
+        {
+            leftClickDPI(hwndGame, CARD_ENHANCE_POS.x(), CARD_ENHANCE_POS.y()); //点击卡片强化按钮
+        }
+        else if(position == "(94,326)卡片强化")
+        {
+            leftClickDPI(hwndGame, CARD_PRODUCE_POS.x(), CARD_PRODUCE_POS.y()); //点击卡片制作按钮
+        }
+        else if(position == "(675,556)合成屋外")
+        {
+            leftClickDPI(hwndGame, SYNTHESIS_HOUSE_POS.x(), SYNTHESIS_HOUSE_POS.y()); //点击合成屋按钮
+        }
+        sleepByQElapsedTimer(300);
+    }
+    QMessageBox::warning(this, "提示", "前往" + targetPageName + "页面失败");
     return FALSE;
 }

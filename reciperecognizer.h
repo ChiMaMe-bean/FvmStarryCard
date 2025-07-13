@@ -89,7 +89,7 @@ private:
     void addLog(const QString& message, LogType type);
     void addLog(const QString& message);  // 重载版本提供默认行为
     bool leftClickDPI(HWND hwnd, int x, int y);
-    QImage captureGameWindow();
+    QImage captureWindowByHandle(HWND hwnd, const QString& windowName);
     void sleepByQElapsedTimer(int ms);
 };
 

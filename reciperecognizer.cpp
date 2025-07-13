@@ -62,7 +62,7 @@ bool RecipeRecognizer::leftClickDPI(HWND hwnd, int x, int y)
     return false;
 }
 
-QImage RecipeRecognizer::captureGameWindow()
+QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowName)
 {
     if (m_captureCallback) {
         return m_captureCallback();
@@ -645,7 +645,7 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
     sleepByQElapsedTimer(500);
 
     // 翻页到顶部后，重新截取游戏窗口
-    QImage topScreenshot = captureGameWindow();
+    QImage topScreenshot = captureWindowByHandle(hwndGame,"主页面");
     if (topScreenshot.isNull()) {
         addLog("翻页到顶部后截图失败", LogType::Error);
         return;
@@ -683,7 +683,7 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
             sleepByQElapsedTimer(500);
             pageCount++;
             addLog(QString("翻到第 %1 页").arg(pageCount), LogType::Info);
-            QImage newScreenshot = captureGameWindow();
+            QImage newScreenshot = captureWindowByHandle(hwndGame,"主页面");
             if (newScreenshot.isNull()) { addLog("截图失败", LogType::Error); break; }
             QString timestamp3 = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
             QList<QPair<QPoint, double>> newMatches = recognizeOnePage(newScreenshot, timestamp3);

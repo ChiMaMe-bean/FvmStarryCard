@@ -127,6 +127,7 @@ private slots:
     void onCaptureAndRecognize();
     void onEnhancementConfigChanged();
     void saveEnhancementConfig();
+    void scheduleConfigSave(); // 计划延迟保存配置
     void loadEnhancementConfig();
     void loadEnhancementConfigFromFile();
     void onCardSettingButtonClicked();
@@ -134,6 +135,7 @@ private slots:
     void onApplySubCardToAll(int row, const QString& cardType, bool bind, bool unbound);
     void onMaxEnhancementLevelChanged();
     void onMinEnhancementLevelChanged();
+    void updateEnhancementTableUI(); // 更新强化表格UI状态
     HWND GetHallWindow(HWND hWnd);
     bool IsGameWindowVisible(HWND hWnd);
     void clickRefresh();
@@ -143,13 +145,11 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
-    int IsGameWindow(HWND hWndGame); 
     void setBackground(const QString &imagePath);
     void saveCustomBgPath();
     void loadCustomBgPath();
     void setupUI();
     void updateCurrentBgLabel();
-    QImage captureGameWindow();
     QImage captureWindowByHandle(HWND hwnd, const QString& windowName = "");
     QImage captureImageRegion(const QImage& sourceImage, const QRect& rect, const QString& filename = "");
     void showRecognitionResults(const std::vector<CardInfo>& results);
@@ -189,9 +189,6 @@ private:
     bool loadPageTemplates();
     bool isPageAtTop();
     bool isPageAtBottom();
-    
-    // 位置模板相关方法
-    void loadPositionTemplates();
 
     // 配方识别相关方法（已迁移到 RecipeRecognizer）
     QStringList getAvailableRecipeTypes() const; // 获取所有可用的配方类型
@@ -199,7 +196,7 @@ private:
     // 鼠标点击相关方法
     BOOL leftClickDPI(HWND hwnd, int x, int y);
     BOOL leftClick(HWND hwnd, int x, int y);
-    BOOL closeHealthTip();
+    BOOL closeHealthTip(uint8_t retryCount = 10);
     
     // 窗口位图获取方法
     BOOL getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& pixelData);
@@ -243,7 +240,6 @@ private:
     
     bool isTracking = false;
     bool isEnhancing = false;
-    int currentEnhancementLevel = 0; // 当前强化等级 (0表示未开始)
     HWND hwndGame = nullptr; // 游戏窗口
     HWND hwndHall = nullptr;   // 大厅窗口
     HWND hwndServer = nullptr; // 选服窗口
@@ -258,7 +254,7 @@ private:
     QString jsonPath = "custom_bg_config.json";
     QString enhancementConfigPath = "enhancement_config.json";
     CardRecognizer* cardRecognizer;
-    QStringList requiredCardTypesForEnhancement; // 强化流程中使用的卡片类型列表
+    QStringList requiredCardTypes; // 强化流程中使用的卡片类型列表
     
     // 四叶草识别相关数据
     QHash<QString, QString> cloverTemplateHashes; // 四叶草类型名 -> 哈希值（保留备用）
@@ -281,11 +277,36 @@ private:
     QVector<double> pageDownHistogram;  // 翻页到底部颜色直方图
     bool pageTemplatesLoaded = false;
 
+    // 位置模板相关方法
+    void loadPositionTemplates();
+    QString recognizeCurrentPosition(QImage screenshot);
+
+    // 页面跳转枚举
+    enum class PageType {
+        CardEnhance,    // 卡片强化页面
+        CardProduce     // 卡片制作页面
+    };
+
+    BOOL goToPage(PageType targetPage, uint8_t retryCount = 20);
+
     // 位置模板相关数据
     QHash<QString, QString> positionTemplateHashes; // 位置模板名称 -> 哈希值
+    
+    // 游戏界面位置常量
+    static const QPoint CARD_ENHANCE_POS;     // 卡片强化按钮位置 (94,326)
+    static const QPoint CARD_PRODUCE_POS;     // 卡片制作按钮位置 (94,260)
+    static const QPoint SYNTHESIS_HOUSE_POS;  // 合成屋按钮位置 (675,556)
+    static const QPoint RANKING_POS;          // 排行榜位置 (178,96)
 
     RecipeRecognizer* recipeRecognizer; // 新增成员变量
-
+    
+    // 延迟保存相关
+    QTimer* configSaveTimer; // 配置保存延迟定时器
+    
+private slots:
+    void onConfigSaveTimeout(); // 配置保存超时槽函数
+    
+public:
     void updateRecipeCombo(); // 更新配方选择下拉框
 };
 #endif // STARRYCARD_H
