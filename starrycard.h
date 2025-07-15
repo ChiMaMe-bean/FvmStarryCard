@@ -55,6 +55,55 @@ enum class LogType {
     Error       // 错误信息（红色）
 };
 
+// 全局强化配置数据结构
+struct GlobalEnhancementConfig {
+    // 基本等级设置
+    int maxLevel = 14;
+    int minLevel = 1;
+    
+    // 每个等级的详细配置 (键格式: "等级-下一等级", 如 "0-1", "1-2")
+    struct LevelConfig {
+        // 副卡配置
+        int subcard1 = 0;           // 副卡1星级 (-1表示无)
+        int subcard2 = -1;          // 副卡2星级 (-1表示无)  
+        int subcard3 = -1;          // 副卡3星级 (-1表示无)
+        
+        // 四叶草配置
+        QString clover = "无";       // 四叶草类型
+        bool cloverBound = false;    // 四叶草绑定状态
+        bool cloverUnbound = false;  // 四叶草不绑状态
+        
+        // 主卡/副卡类型配置
+        QString mainCardType = "无";   // 主卡类型
+        bool mainCardBound = false;    // 主卡绑定状态
+        bool mainCardUnbound = false;  // 主卡不绑状态
+        QString subCardType = "无";    // 副卡类型
+        bool subCardBound = false;     // 副卡绑定状态
+        bool subCardUnbound = false;   // 副卡不绑状态
+    };
+    
+    QMap<QString, LevelConfig> levelConfigs;  // 存储各等级配置
+    
+    // 辅助方法
+    LevelConfig getLevelConfig(int fromLevel, int toLevel) const {
+        QString key = QString("%1-%2").arg(fromLevel).arg(toLevel);
+        return levelConfigs.value(key, LevelConfig());
+    }
+    
+    bool hasLevelConfig(int fromLevel, int toLevel) const {
+        QString key = QString("%1-%2").arg(fromLevel).arg(toLevel);
+        return levelConfigs.contains(key);
+    }
+    
+    void setLevelConfig(int fromLevel, int toLevel, const LevelConfig& config) {
+        QString key = QString("%1-%2").arg(fromLevel).arg(toLevel);
+        levelConfigs[key] = config;
+    }
+};
+
+// 全局配置数据实例声明
+extern GlobalEnhancementConfig g_enhancementConfig;
+
 // 卡片设置对话框
 class CardSettingDialog : public QDialog
 {
@@ -122,6 +171,7 @@ private slots:
     void startEnhancement();
     void stopEnhancement();
     void performEnhancement();
+    void performEnhancementOnce(const std::vector<CardInfo>& cardVector);
     void addLog(const QString& message, LogType type = LogType::Info);
     int getDPIFromDC();
     void onCaptureAndRecognize();
@@ -162,6 +212,9 @@ private:
     QStringList getRequiredCardTypesFromConfig();
     void saveCardSettingForRow(int row, const QString& mainCardType, const QString& subCardType,
                                bool mainBind, bool mainUnbound, bool subBind, bool subUnbound);
+    
+    // 全局配置相关方法
+    bool loadGlobalEnhancementConfig();
     
     // 四叶草识别相关方法
     bool loadCloverTemplates();
@@ -281,6 +334,15 @@ private:
     void loadPositionTemplates();
     QString recognizeCurrentPosition(QImage screenshot);
 
+    // 加载合成屋内卡片位置模板
+    void loadSynHousePosTemplates();
+    QHash<QString, QString> synHousePosTemplateHashes; // 合成屋内卡片位置模板名称 -> 哈希值
+    BOOL checkSynHousePosState(QImage screenshot, const QRect& pos, const QString& templateName);
+    const QRect MAIN_CARD_POS = QRect(269, 332, 32, 32); // 主卡位置
+    const QRect SUB_CARD_POS = QRect(269, 261, 32, 32);  // 副卡位置
+    const QRect INSURANCE_POS = QRect(382, 423, 20, 20); // 保险位置
+    const QRect ENHANCE_BUTTON_POS = QRect(261, 425, 20, 20); // 强化按钮位置
+
     // 页面跳转枚举
     enum class PageType {
         CardEnhance,    // 卡片强化页面
@@ -297,6 +359,10 @@ private:
     static const QPoint CARD_PRODUCE_POS;     // 卡片制作按钮位置 (94,260)
     static const QPoint SYNTHESIS_HOUSE_POS;  // 合成屋按钮位置 (675,556)
     static const QPoint RANKING_POS;          // 排行榜位置 (178,96)
+
+    // 卡片强化属性
+    int maxEnhancementLevel = 10;
+    int minEnhancementLevel = 1;
 
     RecipeRecognizer* recipeRecognizer; // 新增成员变量
     

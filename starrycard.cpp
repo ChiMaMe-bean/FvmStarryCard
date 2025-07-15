@@ -40,6 +40,7 @@
 #include <QScrollBar>
 #include <QRegularExpression>
 #include <algorithm>
+#include <map>
 
 // RGB颜色分量提取宏定义(rgb为0x00RRGGBB类型)
 #define bgrRValue(rgb)      (LOBYTE((rgb)>>16))  // 红色分量
@@ -54,6 +55,9 @@ int DPI = 96;  // 默认 DPI 值为 96，即 100% 缩  放
 const QPoint StarryCard::CARD_ENHANCE_POS(94, 326);      // 卡片强化按钮位置
 const QPoint StarryCard::CARD_PRODUCE_POS(94, 260);      // 卡片制作按钮位置
 const QPoint StarryCard::SYNTHESIS_HOUSE_POS(675, 556);  // 合成屋按钮位置
+
+// 定义全局强化配置数据实例
+GlobalEnhancementConfig g_enhancementConfig;
 
 StarryCard::StarryCard(QWidget *parent)
     : QMainWindow(parent)
@@ -122,6 +126,9 @@ StarryCard::StarryCard(QWidget *parent)
     
     // 初始化位置模板
     loadPositionTemplates();
+
+    // 初始化合成屋内卡片位置模板
+    loadSynHousePosTemplates();
     
     // 初始化 RecipeRecognizer
     recipeRecognizer = new RecipeRecognizer();
@@ -990,6 +997,17 @@ void StarryCard::startEnhancement()
             addLog("强化流程启动失败：未找到有效的卡片类型配置", LogType::Error);
             return;
         }
+
+        // 从UI获取最高强化等级和最低强化等级
+        maxEnhancementLevel = maxEnhancementLevelSpinBox->value();
+        minEnhancementLevel = minEnhancementLevelSpinBox->value();
+        
+        // 加载全局强化配置数据
+        if (loadGlobalEnhancementConfig()) {
+            addLog("全局强化配置加载成功", LogType::Success);
+        } else {
+            addLog("全局强化配置加载失败，使用默认配置", LogType::Warning);
+        }
         
         addLog(QString("强化流程准备就绪，将识别以下卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
         
@@ -1003,6 +1021,230 @@ void StarryCard::startEnhancement()
     }
 }
 
+void StarryCard::performEnhancement()
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        stopEnhancement();
+        QMessageBox::warning(this, "错误", "目标窗口已失效，强化已停止！");
+        addLog("目标窗口已失效，强化已停止！", LogType::Error);
+        return;
+    }
+    addLog("执行强化操作", LogType::Info);
+
+    while (isEnhancing)
+    {
+        QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+        std::vector<CardInfo> cardVector;
+        cardVector = cardRecognizer->recognizeCardsDetailed(screenshot, requiredCardTypes);
+        if (cardVector.empty())
+        {
+            addLog("未找到目标卡片", LogType::Error);
+            break;
+        }
+
+        // 调用强化处理方法
+        performEnhancementOnce(cardVector);
+    }
+
+    stopEnhancement(); // 强化完成，停止强化
+}
+
+void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
+{
+    addLog("开始分析卡片强化配置", LogType::Info);
+    
+    // 遍历每个强化等级
+    for (int level = minEnhancementLevel; level <= maxEnhancementLevel; ++level) {
+        // 检查是否有对应的配置
+        if (!g_enhancementConfig.hasLevelConfig(level - 1, level)) {
+            addLog(QString("跳过等级 %1-%2：无配置").arg(level - 1).arg(level), LogType::Info);
+            continue;
+        }
+        
+        auto levelConfig = g_enhancementConfig.getLevelConfig(level - 1, level);
+        addLog(QString("检查等级 %1-%2 的配置").arg(level - 1).arg(level), LogType::Info);
+        
+        // 检查是否有足够的卡片满足要求
+        std::vector<CardInfo> selectedCards;
+        bool hasEnoughCards = true;
+        
+        // 1. 检查主卡（目标等级-1的星级）
+        CardInfo mainCard;
+        bool foundMainCard = false;
+        
+        for (const auto& card : cardVector) {
+            if (card.name == levelConfig.mainCardType.toStdString() && 
+                card.level == level - 1) {
+                // 检查绑定状态匹配
+                if ((levelConfig.mainCardBound && card.isBound) || 
+                    (levelConfig.mainCardUnbound && !card.isBound)) {
+                    mainCard = card;
+                    foundMainCard = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!foundMainCard) {
+            addLog(QString("等级 %1-%2：缺少主卡 %3 (%4星)").arg(level - 1).arg(level)
+                  .arg(levelConfig.mainCardType).arg(level - 1), LogType::Warning);
+            hasEnoughCards = false;
+            continue;
+        } else {
+            selectedCards.push_back(mainCard);
+            addLog(QString("找到主卡：%1 (%2星, %3)").arg(QString::fromStdString(mainCard.name))
+                  .arg(mainCard.level).arg(mainCard.isBound ? "绑定" : "未绑定"), LogType::Success);
+        }
+        
+        // 2. 检查副卡
+        std::vector<int> requiredSubcards;
+        if (levelConfig.subcard1 > 0) requiredSubcards.push_back(levelConfig.subcard1);
+        if (levelConfig.subcard2 > 0) requiredSubcards.push_back(levelConfig.subcard2);
+        if (levelConfig.subcard3 > 0) requiredSubcards.push_back(levelConfig.subcard3);
+        
+        std::vector<CardInfo> availableSubcards;
+        for (const auto& card : cardVector) {
+            if (card.name == levelConfig.subCardType.toStdString() && 
+                card.centerPosition != mainCard.centerPosition) { // 不能是主卡
+                // 检查绑定状态匹配
+                if ((levelConfig.subCardBound && card.isBound) || 
+                    (levelConfig.subCardUnbound && !card.isBound)) {
+                    availableSubcards.push_back(card);
+                }
+            }
+        }
+        
+        // 按星级分组副卡
+        std::map<int, std::vector<CardInfo>> subcardsByLevel;
+        for (const auto& card : availableSubcards) {
+            subcardsByLevel[card.level].push_back(card);
+        }
+        
+        // 检查是否有足够的副卡
+        std::vector<CardInfo> selectedSubcards;
+        for (int requiredLevel : requiredSubcards) {
+            if (subcardsByLevel[requiredLevel].empty()) {
+                addLog(QString("等级 %1-%2：缺少副卡 %3 (%4星)").arg(level - 1).arg(level)
+                      .arg(levelConfig.subCardType).arg(requiredLevel), LogType::Warning);
+                hasEnoughCards = false;
+                break;
+            } else {
+                selectedSubcards.push_back(subcardsByLevel[requiredLevel][0]);
+                subcardsByLevel[requiredLevel].erase(subcardsByLevel[requiredLevel].begin());
+                addLog(QString("找到副卡：%1 (%2星, %3)").arg(QString::fromStdString(selectedSubcards.back().name))
+                      .arg(selectedSubcards.back().level).arg(selectedSubcards.back().isBound ? "绑定" : "未绑定"), LogType::Success);
+            }
+        }
+        
+        if (hasEnoughCards) {
+            addLog(QString("等级 %1-%2：卡片齐备，开始点击").arg(level - 1).arg(level), LogType::Success);
+            
+            // 3. 点击选中的卡片
+            // 首先点击主卡
+            leftClickDPI(hwndGame, mainCard.centerPosition.x(), mainCard.centerPosition.y());
+            addLog(QString("点击主卡：(%1, %2)").arg(mainCard.centerPosition.x()).arg(mainCard.centerPosition.y()), LogType::Info);
+            
+            // 然后点击副卡
+            for (const auto& subcard : selectedSubcards) {
+                leftClickDPI(hwndGame, subcard.centerPosition.x(), subcard.centerPosition.y());
+                addLog(QString("点击副卡：(%1, %2)").arg(subcard.centerPosition.x()).arg(subcard.centerPosition.y()), LogType::Info);
+            }
+            
+            // 4. 检查是否需要四叶草
+            if (levelConfig.clover != "无" && levelConfig.clover != "") {
+                addLog(QString("检查四叶草：%1").arg(levelConfig.clover), LogType::Info);
+                
+                QPair<bool, bool> cloverResult = recognizeClover(levelConfig.clover, 
+                                                                levelConfig.cloverBound, 
+                                                                levelConfig.cloverUnbound);
+                if (cloverResult.first) {
+                    addLog(QString("成功添加四叶草：%1 (%2)").arg(levelConfig.clover)
+                          .arg(cloverResult.second ? "绑定" : "未绑定"), LogType::Success);
+                } else {
+                    addLog(QString("未找到四叶草：%1").arg(levelConfig.clover), LogType::Warning);
+                    stopEnhancement(); // 未找到四叶草，停止强化
+                    QMessageBox::warning(this, "错误", "未找到四叶草，强化已停止！");
+                    return;
+                }
+            }
+            
+            addLog(QString("等级 %1-%2 的强化材料准备完成").arg(level - 1).arg(level), LogType::Success);
+
+            // 等待强化按钮就绪
+            for (int i = 0; i < 100; i++)
+            {
+                QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+
+                if (checkSynHousePosState(screenshot, ENHANCE_BUTTON_POS, "enhanceButtonReady"))
+                {
+                    addLog("强化按钮已就绪，点击强化按钮", LogType::Success);
+                    leftClickDPI(hwndGame, 285, 435); // 点击强化按钮
+                    break;
+                }
+                else if(i == 99)
+                {
+                    stopEnhancement();
+                    QMessageBox::warning(this, "错误", "强化按钮异常，强化已停止！");
+                    return;
+                }
+                else if(isEnhancing == false)
+                {
+                    return;
+                }
+                sleepByQElapsedTimer(30);
+            }
+
+            // 等待副卡位置为空
+            for (int i = 0; i < 100; i++)
+            {
+                QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+                if (checkSynHousePosState(screenshot, SUB_CARD_POS, "subCardEmpty"))
+                {
+                    addLog("副卡位置为空，强化完成，等待强化结果", LogType::Success);
+                    break;
+                }
+                else if(i == 99)
+                {
+                    stopEnhancement();
+                    QMessageBox::warning(this, "错误", "副卡位置异常，强化已停止！");
+                    return;
+                }
+                else if(isEnhancing == false)
+                {
+                    return;
+                }
+                sleepByQElapsedTimer(30);
+            }
+
+            // 强化完成后清空主卡位置
+            for (int i = 0; i < 100; i++)
+            {
+                leftClickDPI(hwndGame, 288, 350); // 点击主卡位置卸下主卡
+                QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+                if (checkSynHousePosState(screenshot, MAIN_CARD_POS, "mainCardEmpty"))
+                {
+                    addLog(QString("主卡位置为空，卸卡完成，单次强化完成").arg(level - 1).arg(level), LogType::Success);
+                    return;
+                }
+                else if(i == 99)
+                {
+                    stopEnhancement();
+                    QMessageBox::warning(this, "错误", "主卡位置异常，强化已停止！");
+                    return;
+                }
+                else if(isEnhancing == false)
+                {
+                    return;
+                }
+                sleepByQElapsedTimer(30);
+            }
+        }
+    }
+    
+    stopEnhancement();
+    QMessageBox::warning(this, "强化停止", "没有找到可以强化的卡片，强化已停止！");
+}
+
 void StarryCard::stopEnhancement()
 {
     if (enhancementBtn) {
@@ -1014,19 +1256,6 @@ void StarryCard::stopEnhancement()
         
         addLog("停止强化流程", LogType::Warning);
     }
-}
-
-void StarryCard::performEnhancement()
-{
-    if (!hwndGame || !IsWindow(hwndGame)) {
-        stopEnhancement();
-        QMessageBox::warning(this, "错误", "目标窗口已失效，强化已停止！");
-        addLog("目标窗口已失效，强化已停止！", LogType::Error);
-        return;
-    }
-    
-    leftClickDPI(hwndGame, 284, 427);
-    addLog("执行强化操作", LogType::Info);
 }
 
 void StarryCard::trackMousePosition(QPoint pos) {
@@ -3355,19 +3584,18 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     addLog("正在翻页到顶部...", LogType::Info);
     
     // 循环点击上翻按钮直到翻到顶部
-    int maxPageUpAttempts = 20;
+    int maxPageUpAttempts = 100;
     for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
-        leftClickDPI(hwndGame, 532, 539);
-        sleepByQElapsedTimer(100);
         
         if (isPageAtTop()) {
-            qDebug() << "成功翻页到顶部，总共点击" << (attempt + 1) << "次";
-            addLog(QString("成功翻页到顶部，总共点击 %1 次").arg(attempt + 1), LogType::Success);
+            addLog(QString("成功翻页到顶部，总共点击 %1 次").arg(attempt), LogType::Success);
             break;
         }
+
+        leftClickDPI(hwndGame, 532, 539);
+        sleepByQElapsedTimer(50);
         
         if (attempt == maxPageUpAttempts - 1) {
-            qDebug() << "翻页到顶部失败，已达最大尝试次数";
             addLog("翻页到顶部失败", LogType::Warning);
         }
     }
@@ -3395,7 +3623,6 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
                 int click_x = 33 + x_offset + 24;
                 int click_y = 526 + 24;
                 
-                qDebug() << "第" << (i + 1) << "个四叶草识别";
                 if (recognizeSingleClover(singleClover, cloverType, click_x, click_y, clover_bound, clover_unbound)) {
                     bool actualBindState = false;
                     checkCloverBindState(singleClover, clover_bound, clover_unbound, actualBindState);
@@ -3558,6 +3785,32 @@ void StarryCard::loadPositionTemplates()
     qDebug() << "位置模板加载完成，总数:" << positionTemplateHashes.size();
 }
 
+void StarryCard::loadSynHousePosTemplates()
+{
+    synHousePosTemplateHashes.clear();
+
+    QStringList positionFiles = {
+        ":/items/position/mainCardEmpty.png",
+        ":/items/position/subCardEmpty.png",
+        ":/items/position/insuranceEmpty.png",
+        ":/items/position/enhanceButtonReady.png",
+    };
+
+    for (const QString& filePath : positionFiles) {
+        QString fileName = QFileInfo(filePath).fileName();
+        QString key = QFileInfo(filePath).baseName();
+        QImage img(filePath);
+        if (img.isNull()) {
+            qDebug() << "图片加载失败:" << filePath;
+            continue;
+        }
+
+        QString hash = calculateImageHash(img);
+        synHousePosTemplateHashes[key] = hash;
+        qDebug() << "合成屋模板：键:" << key << "哈希值:" << hash;
+    }
+}
+
 QString StarryCard::recognizeCurrentPosition(QImage screenshot)
 {
     // 循环遍历所有的位置模板
@@ -3633,6 +3886,12 @@ QString StarryCard::recognizeCurrentPosition(QImage screenshot)
     // 没有找到匹配的位置
     qDebug() << "未找到匹配的位置模板";
     return QString();
+}
+
+BOOL StarryCard::checkSynHousePosState(QImage screenshot, const QRect& pos, const QString& templateName)
+{
+    QString hash = calculateImageHash(screenshot, pos);
+    return hash == synHousePosTemplateHashes[templateName];
 }
 
 bool StarryCard::isPageAtTop()
@@ -4884,4 +5143,108 @@ BOOL StarryCard::goToPage(PageType targetPage, uint8_t retryCount)
     }
     QMessageBox::warning(this, "提示", "前往" + targetPageName + "页面失败");
     return FALSE;
+}
+
+// ================================== 全局配置加载方法 ==================================
+
+bool StarryCard::loadGlobalEnhancementConfig()
+{
+    // 清空现有配置
+    g_enhancementConfig = GlobalEnhancementConfig();
+    
+    QFile file(enhancementConfigPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "无法打开强化配置文件:" << enhancementConfigPath;
+        return false;
+    }
+    
+    QByteArray data = file.readAll();
+    file.close();
+    
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &error);
+    
+    if (error.error != QJsonParseError::NoError) {
+        qDebug() << "JSON解析错误:" << error.errorString();
+        return false;
+    }
+    
+    if (!doc.isObject()) {
+        qDebug() << "JSON根节点不是对象";
+        return false;
+    }
+    
+    QJsonObject config = doc.object();
+    
+    // 加载基本等级设置
+    if (config.contains("max_enhancement_level") && config["max_enhancement_level"].isDouble()) {
+        g_enhancementConfig.maxLevel = config["max_enhancement_level"].toInt();
+    }
+    
+    if (config.contains("min_enhancement_level") && config["min_enhancement_level"].isDouble()) {
+        g_enhancementConfig.minLevel = config["min_enhancement_level"].toInt();
+    }
+    
+    // 加载各等级的详细配置
+    for (int level = 0; level < 14; ++level) {
+        QString levelKey = QString("%1-%2").arg(level).arg(level + 1);
+        
+        if (!config.contains(levelKey)) continue;
+        
+        QJsonObject levelConfigJson = config[levelKey].toObject();
+        GlobalEnhancementConfig::LevelConfig levelConfig;
+        
+        // 加载副卡配置
+        if (levelConfigJson.contains("subcard1") && levelConfigJson["subcard1"].isDouble()) {
+            levelConfig.subcard1 = levelConfigJson["subcard1"].toInt();
+        }
+        if (levelConfigJson.contains("subcard2") && levelConfigJson["subcard2"].isDouble()) {
+            levelConfig.subcard2 = levelConfigJson["subcard2"].toInt();
+        }
+        if (levelConfigJson.contains("subcard3") && levelConfigJson["subcard3"].isDouble()) {
+            levelConfig.subcard3 = levelConfigJson["subcard3"].toInt();
+        }
+        
+        // 加载四叶草配置
+        if (levelConfigJson.contains("clover") && levelConfigJson["clover"].isString()) {
+            levelConfig.clover = levelConfigJson["clover"].toString();
+        }
+        if (levelConfigJson.contains("clover_bound") && levelConfigJson["clover_bound"].isBool()) {
+            levelConfig.cloverBound = levelConfigJson["clover_bound"].toBool();
+        }
+        if (levelConfigJson.contains("clover_unbound") && levelConfigJson["clover_unbound"].isBool()) {
+            levelConfig.cloverUnbound = levelConfigJson["clover_unbound"].toBool();
+        }
+        
+        // 加载主卡配置
+        if (levelConfigJson.contains("main_card_type") && levelConfigJson["main_card_type"].isString()) {
+            levelConfig.mainCardType = levelConfigJson["main_card_type"].toString();
+        }
+        if (levelConfigJson.contains("main_card_bound") && levelConfigJson["main_card_bound"].isBool()) {
+            levelConfig.mainCardBound = levelConfigJson["main_card_bound"].toBool();
+        }
+        if (levelConfigJson.contains("main_card_unbound") && levelConfigJson["main_card_unbound"].isBool()) {
+            levelConfig.mainCardUnbound = levelConfigJson["main_card_unbound"].toBool();
+        }
+        
+        // 加载副卡类型配置
+        if (levelConfigJson.contains("sub_card_type") && levelConfigJson["sub_card_type"].isString()) {
+            levelConfig.subCardType = levelConfigJson["sub_card_type"].toString();
+        }
+        if (levelConfigJson.contains("sub_card_bound") && levelConfigJson["sub_card_bound"].isBool()) {
+            levelConfig.subCardBound = levelConfigJson["sub_card_bound"].toBool();
+        }
+        if (levelConfigJson.contains("sub_card_unbound") && levelConfigJson["sub_card_unbound"].isBool()) {
+            levelConfig.subCardUnbound = levelConfigJson["sub_card_unbound"].toBool();
+        }
+        
+        // 存储到全局配置中
+        g_enhancementConfig.setLevelConfig(level, level + 1, levelConfig);
+    }
+    
+    qDebug() << "全局强化配置加载完成:";
+    qDebug() << "- 等级范围:" << g_enhancementConfig.minLevel << "-" << g_enhancementConfig.maxLevel;
+    qDebug() << "- 已加载" << g_enhancementConfig.levelConfigs.size() << "个等级配置";
+    
+    return true;
 }

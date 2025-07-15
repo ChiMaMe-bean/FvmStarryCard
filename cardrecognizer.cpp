@@ -441,7 +441,7 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
             return results;
         }
 
-        qDebug() << "找到分隔线，位置:" << maxLoc.y << "，匹配度:" << maxVal;
+        // qDebug() << "找到分隔线，位置:" << maxLoc.y << "，匹配度:" << maxVal;
 
         // 截取分隔线下方的卡片区域
         int startY = maxLoc.y + separatorLine.rows;
@@ -456,10 +456,10 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
         cv::Mat cardsArea = cardArea(cv::Rect(0, startY, cardArea.cols, processHeight)).clone();
 
         // 保存卡片区域图像
-        QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
-        QString cardsAreaPath = QString("screenshots/cardsarea_%1.png").arg(timestamp);
-        cv::imwrite(cardsAreaPath.toStdString(), cardsArea);
-        qDebug() << "Card area saved to:" << cardsAreaPath;
+        // QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+        // QString cardsAreaPath = QString("screenshots/cardsarea_%1.png").arg(timestamp);
+        // cv::imwrite(cardsAreaPath.toStdString(), cardsArea);
+        // qDebug() << "Card area saved to:" << cardsAreaPath;
         
         // 计算实际可处理的行数
         int maxRows = processHeight / CARD_HEIGHT;
@@ -500,7 +500,7 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
 
                     // 只与目标卡片类型进行匹配
                     std::string bestMatch = "";
-                    double bestSimilarity = 0.0;
+                    double similarity = 0.0;
                     
                     for (const std::string& targetCard : targetCards) {
                         cv::Mat templateHash = templateManager.getTemplate(targetCard);
@@ -508,16 +508,16 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
                             continue; // 如果模板不存在，跳过
                         }
                         
-                        double similarity = CardTemplateManager::compareHash(currentHash, templateHash);
+                        similarity = CardTemplateManager::compareHash(currentHash, templateHash);
                         
-                        if (similarity > bestSimilarity) {
-                            bestSimilarity = similarity;
+                        if (similarity == 1.0) {
                             bestMatch = targetCard;
+                            break;
                         }
                     }
                     
                     // 只有相似度达到阈值才认为是有效匹配
-                    if (bestSimilarity >= 1.0 && !bestMatch.empty()) {
+                    if (similarity == 1.0 && !bestMatch.empty()) {
                         // 提取整个卡片用于星级和绑定状态识别
                         cv::Mat fullCard = cardsArea(cv::Rect(cardX, cardY, CARD_WIDTH, CARD_HEIGHT));
                         
@@ -536,11 +536,11 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
                         CardInfo cardInfo(bestMatch, cardLevel, isBound, centerPos, row, col);
                         results.push_back(cardInfo);
                         
-                        qDebug() << "找到目标卡片:" << QString::fromStdString(bestMatch) 
-                                << "星级:" << cardLevel
-                                << "绑定状态:" << (isBound ? "已绑定" : "未绑定")
-                                << "位置:" << row << "," << col
-                                << "中心坐标:" << centerPos.x() << "," << centerPos.y();
+                        // qDebug() << "找到目标卡片:" << QString::fromStdString(bestMatch) 
+                        //         << "星级:" << cardLevel
+                        //         << "绑定状态:" << (isBound ? "已绑定" : "未绑定")
+                        //         << "位置:" << row << "," << col
+                        //         << "中心坐标:" << centerPos.x() << "," << centerPos.y();
                     }
 
                 } catch (const cv::Exception& e) {
