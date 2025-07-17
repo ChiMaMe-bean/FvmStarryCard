@@ -3,10 +3,8 @@
 
 #include <QObject>
 #include <QImage>
-#include <opencv2/opencv.hpp>
 #include <vector>
 #include <string>
-#include <unordered_map>
 #include <QMap>
 #include <QFileInfo>
 #include <QPoint>
@@ -14,7 +12,7 @@
 
 // 卡片信息结构体
 struct CardInfo {
-    std::string name;           // 卡片名称
+    QString name;               // 卡片名称
     int level;                  // 卡片星级
     bool isBound;               // 是否绑定
     QPoint centerPosition;      // 卡片中心位置（相对于游戏窗口）
@@ -22,27 +20,8 @@ struct CardInfo {
     int col;                    // 卡片在背包中的列位置
     
     CardInfo() : level(0), isBound(false), row(-1), col(-1) {}
-    CardInfo(const std::string& cardName, int cardLevel, bool bound, QPoint center, int r, int c)
+    CardInfo(const QString& cardName, int cardLevel, bool bound, QPoint center, int r, int c)
         : name(cardName), level(cardLevel), isBound(bound), centerPosition(center), row(r), col(c) {}
-};
-
-// 卡片模板管理类
-class CardTemplateManager {
-public:
-    // 添加新的卡片模板
-    void addTemplate(const std::string& cardName, const cv::Mat& templateImage);
-    // 获取特定卡片的模板
-    cv::Mat getTemplate(const std::string& cardName) const;
-    // 获取所有已注册的卡片名称
-    std::vector<std::string> getRegisteredCards() const;
-    // 计算图像的特征哈希
-    static cv::Mat computeHash(const cv::Mat& img);
-    // 比较两个哈希值的相似度
-    static double compareHash(const cv::Mat& hash1, const cv::Mat& hash2);
-
-private:
-    std::unordered_map<std::string, cv::Mat> templates;
-    std::unordered_map<std::string, cv::Mat> templateHashes;
 };
 
 class CardRecognizer : public QObject
@@ -52,8 +31,8 @@ class CardRecognizer : public QObject
 public:
     explicit CardRecognizer(QObject *parent = nullptr);
     bool loadTemplates();
-    std::vector<CardInfo> recognizeCardsDetailed(const QImage& screenshot, const QStringList& targetCardTypes);
-    std::vector<std::string> getRegisteredCards() const;
+    std::vector<CardInfo> recognizeCards(const QImage& screenshot, const QStringList& targetCardTypes);
+    QStringList getRegisteredCards() const;
     
     // Card ROI constants
     static constexpr int CARD_TYPE_ROI_X = 8;
@@ -72,16 +51,10 @@ public:
     static constexpr int CARD_BIND_ROI_HEIGHT = 7;
 
 private:
-    cv::Mat qImageToCvMat(const QImage& image);
-    std::vector<cv::Mat> cardTemplates;
-    std::vector<std::string> templateNames;
-    cv::Mat separatorLine;
-    CardTemplateManager templateManager;
     
     const int CARD_WIDTH = 49;
     const int CARD_HEIGHT = 57;
-    const cv::Rect CARD_AREA{559, 91, 343, 456};
-    const QRect CARD_AREA_ROI{559, 91, 343, 456};
+    const QRect CARD_AREA{559, 91, 343, 456};
     const double MATCH_THRESHOLD = 0.28;
     const int MAX_SEPARATOR_SEARCH_HEIGHT = 70;
 
@@ -91,12 +64,29 @@ private:
 
     QMap<QString, QImage> m_levelTemplates;
     QImage m_bindTemplate;
-    int recognizeCardLevel(const cv::Mat& cardMat);
-    bool recognizeCardBind(const cv::Mat& cardMat);
+    int recognizeCardLevel(QImage cardArea);
+    bool recognizeCardBind(QImage cardArea);
     int findStartYUsingColorDetection(const QImage& screenshot);
     void loadLevelTemplates();
     void loadBindTemplate();
     QPoint calculateCardCenterPosition(int row, int col) const;
+
+    // 卡片类型哈希值
+    QHash<QString, QString> cardTypeHashes;
+    QRect CARD_TYPE_ROI{8,22,33,15};
+
+    // 卡片等级哈希值
+    QStringList cardLevelHashes;
+    void loadCardLevelHashes();
+    const QRect CARD_LEVEL_ROI{9,8,6,8};
+
+    // 绑定状态哈希值
+    QString cardBindHash;
+    void loadCardBindHashes();
+    const QRect CARD_BOUND_ROI{5,45,6,7};
+
+    // 计算图像哈希值
+    QString calculateImageHash(const QImage& image, const QRect& roi = QRect());
 };
 
 #endif // CARDRECOGNIZER_H 

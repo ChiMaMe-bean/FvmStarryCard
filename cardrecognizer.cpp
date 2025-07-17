@@ -30,45 +30,29 @@ CardRecognizer::CardRecognizer(QObject *parent)
     : QObject(parent)
 {
     qDebug() << "初始化 CardRecognizer...";
-    qDebug() << "Application directory:" << QCoreApplication::applicationDirPath();
-    qDebug() << "Data directory:" << getAppDataPath();
-    qDebug() << "Card Type ROI dimensions:" << CARD_TYPE_ROI_WIDTH << "x" << CARD_TYPE_ROI_HEIGHT;
-    qDebug() << "Card Level ROI dimensions:" << CARD_LEVEL_ROI_WIDTH << "x" << CARD_LEVEL_ROI_HEIGHT;
-    qDebug() << "Card Bind ROI dimensions:" << CARD_BIND_ROI_WIDTH << "x" << CARD_BIND_ROI_HEIGHT;
+    // qDebug() << "Application directory:" << QCoreApplication::applicationDirPath();
+    // qDebug() << "Data directory:" << getAppDataPath();
+    // qDebug() << "Card Type ROI dimensions:" << CARD_TYPE_ROI_WIDTH << "x" << CARD_TYPE_ROI_HEIGHT;
+    // qDebug() << "Card Level ROI dimensions:" << CARD_LEVEL_ROI_WIDTH << "x" << CARD_LEVEL_ROI_HEIGHT;
+    // qDebug() << "Card Bind ROI dimensions:" << CARD_BIND_ROI_WIDTH << "x" << CARD_BIND_ROI_HEIGHT;
     
     if (!loadTemplates()) {
         qDebug() << "模板加载失败，卡片识别功能将无法工作！";
         qDebug() << "Please ensure all required files exist in the following structure:";
         qDebug() << "- items/position/line.png (separator line template)";
-        qDebug() << "- items/card/*.png (card templates)";
     }
     
     // 加载星级模板
     loadLevelTemplates();
+    loadCardLevelHashes();
     
     // 加载绑定模板
     loadBindTemplate();
+    loadCardBindHashes();
 }
 
 bool CardRecognizer::loadTemplates()
 {
-    // 加载分隔线模板
-    QString linePath = ":/items/position/line.png";
-    
-    // 先将资源文件加载为QImage
-    QImage lineImage(linePath);
-    if (lineImage.isNull()) {
-        qDebug() << "分隔线模板加载失败:" << linePath;
-        return false;
-    }
-    
-    // 转换为Mat格式
-    separatorLine = qImageToCvMat(lineImage);
-    if (separatorLine.empty()) {
-        qDebug() << "分隔线模板转换失败";
-        return false;
-    }
-
     // 加载卡片模板
     QDir resourceDir(":/items/card");
     QStringList nameFilters;
@@ -86,98 +70,29 @@ bool CardRecognizer::loadTemplates()
                 qDebug() << "模板加载失败:" << fullPath;
                 continue;
             }
-            
-            // 转换为Mat格式
-            cv::Mat cardTemplate = qImageToCvMat(cardImage);
-            if (cardTemplate.empty()) {
-                qDebug() << "模板转换失败:" << fullPath;
-                continue;
-            }
-
-            // 提取模板的ROI区域
-            if (cardTemplate.cols < CARD_TYPE_ROI_X + CARD_TYPE_ROI_WIDTH || cardTemplate.rows < CARD_TYPE_ROI_Y + CARD_TYPE_ROI_HEIGHT) {
-                qDebug() << "模板尺寸过小:" << cardTemplate.cols << "x" << cardTemplate.rows;
-                continue;
-            }
-
-            cv::Mat roiTemplate = cardTemplate(cv::Rect(CARD_TYPE_ROI_X, CARD_TYPE_ROI_Y, CARD_TYPE_ROI_WIDTH, CARD_TYPE_ROI_HEIGHT)).clone();
-            if (roiTemplate.empty()) {
-                qDebug() << "ROI提取失败:" << cardFile;
-                continue;
-            }
-            
-            // 计算ROI的哈希值
-            cv::Mat hash = CardTemplateManager::computeHash(roiTemplate);
-            if (hash.empty()) {
-                qDebug() << "哈希计算失败:" << cardFile;
-                continue;
-            }
-            
             // 去掉文件扩展名作为卡片名称
             QString cardName = QFileInfo(cardFile).baseName();
-            templateManager.addTemplate(cardName.toStdString(), hash);
-            
-            // qDebug() << "Successfully loaded and hashed template:" << cardName
-            //          << "\nTemplate size:" << cardTemplate.cols << "x" << cardTemplate.rows
-            //          << "\nROI size:" << roiTemplate.cols << "x" << roiTemplate.rows
-            //          << "\nHash size:" << hash.cols << "x" << hash.rows;
+
+            cardTypeHashes.insert(cardName, calculateImageHash(cardImage, CARD_TYPE_ROI));
 
             // 保存调试图像
-            QString debugDir = getAppDataPath() + "/template_debug";
-            QDir().mkpath(debugDir);
-            
-            // 保存ROI
-            cv::imwrite(QString("%1/%2_roi.png").arg(debugDir).arg(cardName).toStdString(), roiTemplate);
-            
-            // 保存哈希值可视化
-            cv::Mat hashVis = cv::Mat::zeros(8, 8, CV_8UC1);
-            for (int i = 0; i < 8; i++) {
-                for (int j = 0; j < 8; j++) {
-                    hashVis.at<uchar>(i, j) = hash.at<uchar>(0, i * 8 + j) * 255;
-                }
-            }
-            cv::imwrite(QString("%1/%2_hash.png").arg(debugDir).arg(cardName).toStdString(), hashVis);
+            // QString debugDir = getAppDataPath() + "/template_debug";
+            // QDir().mkpath(debugDir);            
         }
-        catch (const cv::Exception& e) {
+        catch (const std::exception& e) {
             qDebug() << "模板处理失败" << cardFile << ":" << e.what();
             continue;
         }
     }
 
-    auto cards = templateManager.getRegisteredCards();
+    auto cards = cardTypeHashes.keys();
     if (cards.empty()) {
         qDebug() << "没有加载任何卡片模板";
         return false;
     }
 
-    qDebug() << "成功加载" << cards.size() << "个模板";
+    qDebug() << "成功加载" << cardTypeHashes.size() << "个模板";
     return true;
-}
-
-cv::Mat CardRecognizer::qImageToCvMat(const QImage& image)
-{
-    switch (image.format()) {
-    case QImage::Format_RGB32:
-    case QImage::Format_ARGB32:
-    case QImage::Format_ARGB32_Premultiplied: {
-        cv::Mat mat(image.height(), image.width(), CV_8UC4, (void*)image.constBits(), image.bytesPerLine());
-        cv::Mat mat2;
-        cv::cvtColor(mat, mat2, cv::COLOR_BGRA2BGR);
-        return mat2;
-    }
-    case QImage::Format_RGB888: {
-        cv::Mat mat(image.height(), image.width(), CV_8UC3, (void*)image.constBits(), image.bytesPerLine());
-        cv::Mat mat2;
-        cv::cvtColor(mat, mat2, cv::COLOR_RGB2BGR);
-        return mat2;
-    }
-    default:
-        QImage converted = image.convertToFormat(QImage::Format_RGB888);
-        cv::Mat mat(converted.height(), converted.width(), CV_8UC3, (void*)converted.constBits(), converted.bytesPerLine());
-        cv::Mat mat2;
-        cv::cvtColor(mat, mat2, cv::COLOR_RGB2BGR);
-        return mat2;
-    }
 }
 
 void CardRecognizer::loadLevelTemplates()
@@ -199,17 +114,75 @@ void CardRecognizer::loadLevelTemplates()
     }
 }
 
+void CardRecognizer::loadCardLevelHashes()
+{
+    cardLevelHashes.clear();
+    for (int level = 1; level <= 16; ++level) {
+        QString levelStr = QString::number(level);
+        QString filePath = QString(":/items/level/%1.png").arg(levelStr);
+        QImage levelImage(filePath);
+        if (!levelImage.isNull()) {
+            cardLevelHashes.append(calculateImageHash(levelImage));
+        } else {
+            qWarning() << "Failed to load level template:" << filePath;
+        }
+    }
+    qDebug() << "level 0 hashes:" << cardLevelHashes[0];
+}
+
+QString CardRecognizer::calculateImageHash(const QImage& image, const QRect& roi)
+{
+    QImage targetImage = image;
+    
+    // 如果指定了ROI区域，则裁剪图像
+    if (!roi.isNull() && roi.isValid()) {
+        targetImage = image.copy(roi);
+    }
+    
+    // 转换为灰度并缩放为8x8像素进行哈希计算
+    QImage grayImage = targetImage.convertToFormat(QImage::Format_Grayscale8);
+    QImage hashImage = grayImage.scaled(8, 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    
+    // 计算平均像素值
+    qint64 totalValue = 0;
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            totalValue += qGray(hashImage.pixel(x, y));
+        }
+    }
+    qint64 avgValue = totalValue / 64;
+    
+    // 生成64位哈希值
+    QString hash;
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            int pixelValue = qGray(hashImage.pixel(x, y));
+            hash += (pixelValue >= avgValue) ? "1" : "0";
+        }
+    }
+    
+    return hash;
+}
+
 void CardRecognizer::loadBindTemplate()
 {
     QString filePath = ":/items/bind_state/card_bind.png";
     m_bindTemplate = QImage(filePath);
     
     if (!m_bindTemplate.isNull()) {
-        qDebug() << "Loaded bind template successfully";
-        qDebug() << "Bind template size:" << m_bindTemplate.width() << "x" << m_bindTemplate.height();
+        // qDebug() << "Loaded bind template successfully";
+        // qDebug() << "Bind template size:" << m_bindTemplate.width() << "x" << m_bindTemplate.height();
     } else {
         qWarning() << "Failed to load bind template:" << filePath;
     }
+}
+
+void CardRecognizer::loadCardBindHashes()
+{
+    QString filePath = ":/items/bind_state/card_bind.png";
+    QImage bindImage(filePath);
+    cardBindHash = calculateImageHash(bindImage);
+    qDebug() << "card bind hashes:" << cardBindHash;
 }
 
 int CardRecognizer::findStartYUsingColorDetection(const QImage& cardAreaImage)
@@ -220,7 +193,7 @@ int CardRecognizer::findStartYUsingColorDetection(const QImage& cardAreaImage)
     
     // 从第一行开始检查，但限制最大搜索范围为卡片的高度+3
     for (int y = 0; y < 60; ++y) {
-        // 检查第47个像素（x=44，因为索引从0开始）
+        // 检查第47个像素（x=46，因为索引从0开始）
         if (46 < cardAreaImage.width()) {
             QColor pixelColor = cardAreaImage.pixelColor(46, y);
             
@@ -248,41 +221,15 @@ int CardRecognizer::findStartYUsingColorDetection(const QImage& cardAreaImage)
     return -1;
 }
 
-int CardRecognizer::recognizeCardLevel(const cv::Mat& cardMat)
+int CardRecognizer::recognizeCardLevel(QImage cardArea)
 {
-    // 检查卡片尺寸是否足够
-    if (cardMat.cols < CARD_LEVEL_ROI_X + CARD_LEVEL_ROI_WIDTH || 
-        cardMat.rows < CARD_LEVEL_ROI_Y + CARD_LEVEL_ROI_HEIGHT) {
-        qWarning() << "Card size too small for level ROI:" << cardMat.cols << "x" << cardMat.rows;
-        return 0;
-    }
-    
-    // 提取星级ROI区域
-    cv::Mat levelRoi = cardMat(cv::Rect(CARD_LEVEL_ROI_X, CARD_LEVEL_ROI_Y, 
-                                       CARD_LEVEL_ROI_WIDTH, CARD_LEVEL_ROI_HEIGHT));
-
     // 按1-16顺序检查每个星级模板，找到完全匹配时立即退出
     int recognizedLevel = 0;
 
-    for (int level = 1; level <= 16; ++level) {
-        QString levelStr = QString::number(level);
-        
-        const QImage& templateImg = m_levelTemplates[levelStr];
-        
-        // 转换模板为cv::Mat
-        cv::Mat templateMat = qImageToCvMat(templateImg);
-        
-
-        // 计算图像哈希匹配度
-        cv::Mat levelHash = CardTemplateManager::computeHash(levelRoi);
-        cv::Mat templateHash = CardTemplateManager::computeHash(templateMat);
-        double matchScore = CardTemplateManager::compareHash(levelHash, templateHash);
-        // qDebug() << "Level" << levelStr << "match score:" << matchScore;
-
-        // 如果找到完全匹配（匹配度为1），立即返回结果
-        if (matchScore == 1.0) {
-            recognizedLevel = level;
-            // qDebug() << "Found perfect match for level" << level << ", stopping search";
+    for (int level = 0; level < cardLevelHashes.size(); ++level) {
+        QString levelHash = calculateImageHash(cardArea, CARD_LEVEL_ROI);
+        if (levelHash == cardLevelHashes[level]) {
+            recognizedLevel = level + 1;
             break;
         }
     }
@@ -291,140 +238,21 @@ int CardRecognizer::recognizeCardLevel(const cv::Mat& cardMat)
     return recognizedLevel;
 }
 
-bool CardRecognizer::recognizeCardBind(const cv::Mat& cardMat)
+bool CardRecognizer::recognizeCardBind(QImage cardArea)
 {
-    // 检查卡片尺寸是否足够
-    if (cardMat.cols < CARD_BIND_ROI_X + CARD_BIND_ROI_WIDTH || 
-        cardMat.rows < CARD_BIND_ROI_Y + CARD_BIND_ROI_HEIGHT) {
-        qWarning() << "Card size too small for bind ROI:" << cardMat.cols << "x" << cardMat.rows;
-        return false;
-    }
-    
-    // 检查绑定模板是否加载
-    if (m_bindTemplate.isNull()) {
-        qWarning() << "Bind template not loaded";
-        return false;
-    }
-    
-    // 提取绑定ROI区域
-    cv::Mat bindRoi = cardMat(cv::Rect(CARD_BIND_ROI_X, CARD_BIND_ROI_Y, 
-                                      CARD_BIND_ROI_WIDTH, CARD_BIND_ROI_HEIGHT));
-    
-    // 转换模板为cv::Mat
-    cv::Mat templateMat = qImageToCvMat(m_bindTemplate);
-    
-    // 确保尺寸匹配
-    if (templateMat.rows != bindRoi.rows || templateMat.cols != bindRoi.cols) {
-        qWarning() << "Template size mismatch for bind state"
-                  << "Template:" << templateMat.rows << "x" << templateMat.cols
-                  << "ROI:" << bindRoi.rows << "x" << bindRoi.cols;
-        return false;
-    }
-    
     // 计算图像哈希匹配度
-    cv::Mat bindHash = CardTemplateManager::computeHash(bindRoi);
-    cv::Mat templateHash = CardTemplateManager::computeHash(templateMat);
-    double matchScore = CardTemplateManager::compareHash(bindHash, templateHash);
-    qDebug() << "Bind match score:" << matchScore;
+    QString cardBindAreaHash = calculateImageHash(cardArea, CARD_BOUND_ROI);
     
-    // 只有完全匹配（匹配度为1）才认为是绑定状态
-    bool isBound = (matchScore == 1.0);
+    // 只有完全匹配才认为是绑定状态
+    bool isBound = (cardBindAreaHash == cardBindHash);
     qDebug() << "Recognized bind state:" << (isBound ? "Bound" : "Unbound");
     
     return isBound;
 }
 
-// CardTemplateManager implementation
-void CardTemplateManager::addTemplate(const std::string& cardName, const cv::Mat& templateImage) {
-    templates[cardName] = templateImage.clone();
-    templateHashes[cardName] = computeHash(templateImage);
-}
-
-cv::Mat CardTemplateManager::getTemplate(const std::string& cardName) const {
-    auto it = templates.find(cardName);
-    return (it != templates.end()) ? it->second : cv::Mat();
-}
-
-std::vector<std::string> CardTemplateManager::getRegisteredCards() const {
-    std::vector<std::string> cards;
-    for (const auto& pair : templates) {
-        cards.push_back(pair.first);
-    }
-    return cards;
-}
-
-std::vector<std::string> CardRecognizer::getRegisteredCards() const
+QStringList CardRecognizer::getRegisteredCards() const
 {
-    return templateManager.getRegisteredCards();
-}
-
-cv::Mat CardTemplateManager::computeHash(const cv::Mat& img) {
-    try {
-        cv::Mat resized, gray;
-        
-        // 确保图像是灰度的
-        if (img.channels() == 3) {
-            cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
-        } else {
-            gray = img.clone();
-        }
-        
-        // 计算每个8x8区块的平均值
-        const int BLOCK_ROWS = 8;
-        const int BLOCK_COLS = 8;
-        const int blockHeight = std::max(1, gray.rows / BLOCK_ROWS);
-        const int blockWidth = std::max(1, gray.cols / BLOCK_COLS);
-        
-        // 创建64位哈希值
-        cv::Mat hash = cv::Mat::zeros(1, 64, CV_8UC1);
-        double totalMean = cv::mean(gray)[0];
-        
-        int idx = 0;
-        for (int i = 0; i < BLOCK_ROWS && idx < 64; i++) {
-            for (int j = 0; j < BLOCK_COLS && idx < 64; j++) {
-                // 计算当前块的范围
-                int startY = i * blockHeight;
-                int startX = j * blockWidth;
-                int endY = std::min(gray.rows, (i + 1) * blockHeight);
-                int endX = std::min(gray.cols, (j + 1) * blockWidth);
-                
-                if (startY >= endY || startX >= endX) {
-                    hash.at<uchar>(0, idx++) = 0;
-                    continue;
-                }
-                
-                // 提取当前块并计算平均值
-                cv::Mat block = gray(cv::Range(startY, endY), cv::Range(startX, endX));
-                if (!block.empty()) {
-                    double blockMean = cv::mean(block)[0];
-                    hash.at<uchar>(0, idx++) = (blockMean > totalMean) ? 1 : 0;
-                } else {
-                    hash.at<uchar>(0, idx++) = 0;
-                }
-            }
-        }
-        
-        return hash;
-    }
-    catch (const cv::Exception& e) {
-        qDebug() << "Error in computeHash:" << e.what();
-        return cv::Mat();
-    }
-}
-
-double CardTemplateManager::compareHash(const cv::Mat& hash1, const cv::Mat& hash2) {
-    if (hash1.empty() || hash2.empty() || hash1.cols != hash2.cols) {
-        return 0.0;
-    }
-    
-    int matches = 0;
-    for (int i = 0; i < hash1.cols; i++) {
-        if (hash1.at<uchar>(0, i) == hash2.at<uchar>(0, i)) {
-            matches++;
-        }
-    }
-    
-    return static_cast<double>(matches) / hash1.cols;
+    return cardTypeHashes.keys();
 }
 
 QPoint CardRecognizer::calculateCardCenterPosition(int row, int col) const
@@ -434,35 +262,24 @@ QPoint CardRecognizer::calculateCardCenterPosition(int row, int col) const
     int cardCenterY = row * CARD_HEIGHT + CARD_HEIGHT / 2;
     
     // 转换为游戏窗口坐标系（需要加上背包区域的偏移）
-    int windowX = CARD_AREA.x + cardCenterX;
-    int windowY = CARD_AREA.y + cardCenterY;
+    int windowX = CARD_AREA.x() + cardCenterX;
+    int windowY = CARD_AREA.y() + cardCenterY;
     
     return QPoint(windowX, windowY);
 }
 
-std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& screenshot, const QStringList& targetCardTypes)
+std::vector<CardInfo> CardRecognizer::recognizeCards(const QImage& screenshot, const QStringList& targetCardTypes)
 {
     std::vector<CardInfo> results;
     auto startTime = std::chrono::high_resolution_clock::now();
-
-    // 将目标卡片类型转换为std::vector<std::string>
-    std::vector<std::string> targetCards;
-    for (const QString& cardType : targetCardTypes) {
-        targetCards.push_back(cardType.toStdString());
-    }
     
     // qDebug() << "识别目标卡片类型:" << targetCardTypes.size() << "种";
 
     try {
         // 获取卡片区域图像
-        QImage cardAreaImage = screenshot.copy(CARD_AREA_ROI);
+        QImage cardAreaImage = screenshot.copy(CARD_AREA);
         // 使用颜色检测方法获取startY
         int startY = findStartYUsingColorDetection(cardAreaImage);
-        
-        if (startY == -1) {
-            qDebug() << "未找到分隔线";
-            return results;
-        }
         
         // qDebug() << "找到分隔线，位置:" << startY;
 
@@ -470,20 +287,13 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
         int availableHeight = cardAreaImage.height() - startY;
         int processHeight = std::min(availableHeight, CARD_AREA_HEIGHT);
         
-        if (processHeight <= 0) {
-            qDebug() << "分隔线下方无可用空间";
-            return results;
-        }
-        
         // 截取处理区域的图像
         QImage cardsAreaImage = cardAreaImage.copy(0, startY, cardAreaImage.width(), processHeight);
-        cv::Mat cardsArea = qImageToCvMat(cardsAreaImage);
 
         // 保存卡片区域图像
-        // QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
-        // QString cardsAreaPath = QString("screenshots/cardsarea_%1.png").arg(timestamp);
-        // cv::imwrite(cardsAreaPath.toStdString(), cardsArea);
-        // qDebug() << "Card area saved to:" << cardsAreaPath;
+        // QString debugDir = getAppDataPath() + "/template_debug";
+        // QDir().mkpath(debugDir);
+        // cardsAreaImage.save(QString("%1/cards_area.png").arg(debugDir));
         
         // 计算实际可处理的行数
         int maxRows = processHeight / CARD_HEIGHT;
@@ -496,7 +306,7 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
                 int cardY = row * CARD_HEIGHT;
                 
                 // 确保不会越界
-                if (cardX + CARD_WIDTH > cardsArea.cols || cardY + CARD_HEIGHT > cardsArea.rows) {
+                if (cardX + CARD_WIDTH > cardsAreaImage.width() || cardY + CARD_HEIGHT > cardsAreaImage.height()) {
                     continue;
                 }
 
@@ -504,82 +314,47 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
                 int roiX = cardX + CARD_TYPE_ROI_X;
                 int roiY = cardY + CARD_TYPE_ROI_Y;
                 
-                if (roiX + CARD_TYPE_ROI_WIDTH > cardsArea.cols || roiY + CARD_TYPE_ROI_HEIGHT > cardsArea.rows) {
+                if (roiX + CARD_TYPE_ROI_WIDTH > cardsAreaImage.width() || roiY + CARD_TYPE_ROI_HEIGHT > cardsAreaImage.height()) {
                     continue;
                 }
+                QRect roiRect(roiX, roiY, CARD_TYPE_ROI_WIDTH, CARD_TYPE_ROI_HEIGHT);
 
                 try {
                     // 提取当前卡片的ROI区域
-                    cv::Mat cardRoi = cardsArea(cv::Rect(roiX, roiY, CARD_TYPE_ROI_WIDTH, CARD_TYPE_ROI_HEIGHT)).clone();
-                    
-                    if (cardRoi.empty()) {
-                        continue;
-                    }
+                    QImage cardRoi = cardsAreaImage.copy(roiRect);
 
                     // 计算当前ROI的哈希值
-                    cv::Mat currentHash = CardTemplateManager::computeHash(cardRoi);
-                    if (currentHash.empty()) {
-                        continue;
-                    }
+                    QString currentHash = calculateImageHash(cardRoi);
 
-                    // 只与目标卡片类型进行匹配
-                    std::string bestMatch = "";
-                    double similarity = 0.0;
-                    
-                    for (const std::string& targetCard : targetCards) {
-                        cv::Mat templateHash = templateManager.getTemplate(targetCard);
-                        if (templateHash.empty()) {
-                            continue; // 如果模板不存在，跳过
-                        }
-                        
-                        similarity = CardTemplateManager::compareHash(currentHash, templateHash);
-                        
-                        if (similarity == 1.0) {
-                            bestMatch = targetCard;
+                    for (const QString& targetCard : targetCardTypes) {
+                        if (cardTypeHashes.value(targetCard) == currentHash) {
+                            QString matchedCard = targetCard;
+
+                            //提取整个卡片用于星级和绑定状态识别
+                            QImage singleCard = cardsAreaImage.copy(cardX, cardY, CARD_WIDTH, CARD_HEIGHT);
+
+                            int cardLevel = recognizeCardLevel(singleCard);
+                            bool isBound = recognizeCardBind(singleCard);
+                            QPoint centerPos = calculateCardCenterPosition(row, col);
+                            centerPos.setY(centerPos.y() + startY);
+                            CardInfo cardInfo(matchedCard, cardLevel, isBound, centerPos, row, col);
+                            results.push_back(cardInfo);
                             break;
                         }
                     }
-                    
-                    // 只有相似度达到阈值才认为是有效匹配
-                    if (similarity == 1.0 && !bestMatch.empty()) {
-                        // 提取整个卡片用于星级和绑定状态识别
-                        cv::Mat fullCard = cardsArea(cv::Rect(cardX, cardY, CARD_WIDTH, CARD_HEIGHT));
-                        
-                        // 识别卡片星级
-                        int cardLevel = recognizeCardLevel(fullCard);
-                        
-                        // 识别卡片绑定状态
-                        bool isBound = recognizeCardBind(fullCard);
-                        
-                        // 计算卡片中心位置（需要考虑分隔线偏移）
-                        QPoint centerPos = calculateCardCenterPosition(row, col);
-                        // 调整Y坐标，加上分隔线的偏移
-                        centerPos.setY(centerPos.y() + startY);
-                        
-                        // 创建CardInfo对象
-                        CardInfo cardInfo(bestMatch, cardLevel, isBound, centerPos, row, col);
-                        results.push_back(cardInfo);
-                        
-                        // qDebug() << "找到目标卡片:" << QString::fromStdString(bestMatch) 
-                        //         << "星级:" << cardLevel
-                        //         << "绑定状态:" << (isBound ? "已绑定" : "未绑定")
-                        //         << "位置:" << row << "," << col
-                        //         << "中心坐标:" << centerPos.x() << "," << centerPos.y();
-                    }
-
-                } catch (const cv::Exception& e) {
+                } catch (const std::exception& e) {
                     qDebug() << "处理卡片ROI时发生错误:" << e.what();
                 }
             }
         }
 
-    } catch (const cv::Exception& e) {
+    } catch (const std::exception& e) {
         qDebug() << "识别过程中发生错误:" << e.what();
     }
 
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-    qDebug() << "针对性详细卡片识别完成，用时:" << duration.count() << "ms，识别到" << results.size() << "张卡片";
+    qDebug() << "卡片识别完成，用时:" << duration.count() << "ms，识别到" << results.size() << "张卡片";
 
     return results;
 } 

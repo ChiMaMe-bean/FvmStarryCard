@@ -922,6 +922,22 @@ void StarryCard::startEnhancement()
         isEnhancing = true;
         enhancementBtn->setText("停止强化");
         addLog("开始强化流程", LogType::Success);
+
+        while(!goToPage(PageType::CardEnhance))
+        {
+            addLog("未找到卡片强化页面，尝试刷新游戏窗口...", LogType::Warning);
+            // 刷新游戏窗口
+            if(!refreshGameWindow())
+            {
+                stopEnhancement();
+                QMessageBox::warning(this, "错误", "刷新游戏窗口失败，强化已停止！");
+                addLog("刷新游戏窗口失败，强化已停止！", LogType::Error);
+                return;
+            }
+            // 关闭健康提示
+            closeHealthTip();
+            sleepByQElapsedTimer(1000);
+        }
         
         performEnhancement();
     } else {
@@ -943,7 +959,7 @@ void StarryCard::performEnhancement()
     {
         QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
         std::vector<CardInfo> cardVector;
-        cardVector = cardRecognizer->recognizeCardsDetailed(screenshot, requiredCardTypes);
+        cardVector = cardRecognizer->recognizeCards(screenshot, requiredCardTypes);
         if (cardVector.empty())
         {
             addLog("未找到目标卡片", LogType::Error);
@@ -981,7 +997,7 @@ void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
         bool foundMainCard = false;
         
         for (const auto& card : cardVector) {
-            if (card.name == levelConfig.mainCardType.toStdString() && 
+            if (card.name == levelConfig.mainCardType && 
                 card.level == level - 1) {
                 // 检查绑定状态匹配
                 if ((levelConfig.mainCardBound && card.isBound) || 
@@ -1000,7 +1016,7 @@ void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
             continue;
         } else {
             selectedCards.push_back(mainCard);
-            addLog(QString("找到主卡：%1 (%2星, %3)").arg(QString::fromStdString(mainCard.name))
+            addLog(QString("找到主卡：%1 (%2星, %3)").arg(mainCard.name)
                   .arg(mainCard.level).arg(mainCard.isBound ? "绑定" : "未绑定"), LogType::Success);
         }
         
@@ -1012,7 +1028,7 @@ void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
         
         std::vector<CardInfo> availableSubcards;
         for (const auto& card : cardVector) {
-            if (card.name == levelConfig.subCardType.toStdString() && 
+            if (card.name == levelConfig.subCardType && 
                 card.centerPosition != mainCard.centerPosition) { // 不能是主卡
                 // 检查绑定状态匹配
                 if ((levelConfig.subCardBound && card.isBound) || 
@@ -1039,7 +1055,7 @@ void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
             } else {
                 selectedSubcards.push_back(subcardsByLevel[requiredLevel][0]);
                 subcardsByLevel[requiredLevel].erase(subcardsByLevel[requiredLevel].begin());
-                addLog(QString("找到副卡：%1 (%2星, %3)").arg(QString::fromStdString(selectedSubcards.back().name))
+                addLog(QString("找到副卡：%1 (%2星, %3)").arg(selectedSubcards.back().name)
                       .arg(selectedSubcards.back().level).arg(selectedSubcards.back().isBound ? "绑定" : "未绑定"), LogType::Success);
             }
         }
@@ -1488,7 +1504,7 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
     DeleteDC(hdcMemDC);
     ReleaseDC(hwnd, hdcWindow);
 
-    addLog(QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height), LogType::Success);
+    qDebug() << QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height);
     return image;
 }
 
@@ -1569,7 +1585,7 @@ void StarryCard::showRecognitionResults(const std::vector<CardInfo>& results)
 {
     QString message = "识别到的卡片：\n";
     for (const auto& result : results) {
-        message += QString::fromStdString(result.name) + 
+        message += (result.name) + 
                   QString(" (%1星, %2)\n").arg(result.level)
                   .arg(result.isBound ? "已绑定" : "未绑定");
     }
@@ -1680,7 +1696,7 @@ void StarryCard::onCaptureAndRecognize()
         std::vector<CardInfo> results;
         if (!requiredCardTypes.isEmpty()) {
             // 使用针对性识别，只识别配置中需要的卡片类型
-            results = cardRecognizer->recognizeCardsDetailed(screenshot, requiredCardTypes);
+            results = cardRecognizer->recognizeCards(screenshot, requiredCardTypes);
             addLog(QString("识别目标卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
         }
 
@@ -2688,10 +2704,7 @@ QStringList StarryCard::getCardTypes() const
     QStringList cardTypes;
     if (cardRecognizer) {
         // 从卡片识别器获取已加载的卡片类型
-        auto registeredCards = cardRecognizer->getRegisteredCards();
-        for (const auto& card : registeredCards) {
-            cardTypes.append(QString::fromStdString(card));
-        }
+        cardTypes = cardRecognizer->getRegisteredCards();
     }
     
     // 如果没有加载到卡片类型，从资源文件直接获取
@@ -2706,9 +2719,9 @@ QStringList StarryCard::getCardTypes() const
             cardTypes.append(cardName);
         }
         
-        // 如果资源文件也没有，提供默认选项
+        // 如果资源文件也没有
         if (cardTypes.isEmpty()) {
-            cardTypes << "煮蛋器投手" << "巧克力面包" << "三线酒架" << "面粉袋" << "香肠";
+            qDebug() << "没有找到任何卡片类型";
         }
     }
     
@@ -3076,7 +3089,6 @@ CardSettingDialog::CardSettingDialog(int row, const QStringList& cardTypes, QWid
     QHBoxLayout* mainTypeLayout = new QHBoxLayout();
     mainTypeLayout->addWidget(new QLabel("卡片类型:"));
     m_mainCardCombo = new QComboBox();
-    m_mainCardCombo->addItem("无");
     m_mainCardCombo->addItems(cardTypes);
     mainTypeLayout->addWidget(m_mainCardCombo);
     mainCardLayout->addLayout(mainTypeLayout);
@@ -4705,7 +4717,7 @@ HWND StarryCard::getActiveServerWindow(HWND hWndHall)
     return nullptr;
 }
 
-void StarryCard::refreshGameWindow()
+BOOL StarryCard::refreshGameWindow()
 {
     HWND hwndOrigin = getActiveGameWindow(hwndHall);
     addLog(QString("刷新前游戏窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndOrigin), 10)), LogType::Success);
@@ -4720,7 +4732,7 @@ void StarryCard::refreshGameWindow()
         if(counter > 50) // 5秒
         {
             addLog("刷新失败，点击刷新按钮无效", LogType::Error);
-            return;
+            return FALSE;
         }
 
         sleepByQElapsedTimer(200);
@@ -4816,7 +4828,7 @@ void StarryCard::refreshGameWindow()
     if (platformType == -1)
     {
         addLog("无法识别服务器窗口", LogType::Error);
-        return;
+        return FALSE;
     }
     else if (platformType == 0)
     {
@@ -4847,7 +4859,7 @@ void StarryCard::refreshGameWindow()
     else
     {
         qDebug() << "未知的平台类型";
-        return;
+        return FALSE;
     }
 
     hwndGame = nullptr; // 刷新后重新获取游戏窗口
@@ -4858,7 +4870,7 @@ void StarryCard::refreshGameWindow()
         if (counter > 10)
         {
             qDebug() << "无法进入服务器";
-            return;
+            return FALSE;
         }
         if(platformType >= 1 && platformType <= 3) // 1为4399，2为QQ空间，3为QQ大厅,需要点击最近服务器位置
         {
@@ -4871,9 +4883,10 @@ void StarryCard::refreshGameWindow()
         {
             updateHandleDisplay(hwndGame);
             qDebug() << "找到游戏窗口:" << hwndGame;
-            break;
+            return TRUE;
         }
     }
+    return FALSE;
 }
 
 // 计算汉明距离 (差异比特数)

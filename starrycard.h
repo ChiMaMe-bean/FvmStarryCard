@@ -272,7 +272,7 @@ private:
     HWND getActiveServerWindow(HWND hwndHall);
     int waitServerInWindow(RECT rectServer, int *px = nullptr, int *py = nullptr);
     int findLatestServer(int platformType, int *px, int *py);
-    void refreshGameWindow();
+    BOOL refreshGameWindow();
 
     QStackedWidget *centerStack = nullptr;
     QButtonGroup *buttonGroup = nullptr;
