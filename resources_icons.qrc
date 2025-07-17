@@ -7,6 +7,7 @@
         <file>items/icons/icon256.ico</file>
         <file>items/icons/icon512.ico</file>
         <file>items/icons/uparrow_1f.svg</file>
+        <file>items/icons/勾选.svg</file>
         <file>items/icons/日志.svg</file>
     </qresource>
 </RCC>

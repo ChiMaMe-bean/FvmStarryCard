@@ -81,6 +81,7 @@ private:
     const int CARD_WIDTH = 49;
     const int CARD_HEIGHT = 57;
     const cv::Rect CARD_AREA{559, 91, 343, 456};
+    const QRect CARD_AREA_ROI{559, 91, 343, 456};
     const double MATCH_THRESHOLD = 0.28;
     const int MAX_SEPARATOR_SEARCH_HEIGHT = 70;
 
@@ -92,6 +93,7 @@ private:
     QImage m_bindTemplate;
     int recognizeCardLevel(const cv::Mat& cardMat);
     bool recognizeCardBind(const cv::Mat& cardMat);
+    int findStartYUsingColorDetection(const QImage& screenshot);
     void loadLevelTemplates();
     void loadBindTemplate();
     QPoint calculateCardCenterPosition(int row, int col) const;

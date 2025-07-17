@@ -204,6 +204,7 @@ private:
     QImage captureImageRegion(const QImage& sourceImage, const QRect& rect, const QString& filename = "");
     void showRecognitionResults(const std::vector<CardInfo>& results);
     QWidget* createEnhancementConfigPage();
+    QWidget* createSpiceConfigPage();
     int getMinSubCardLevel(int enhancementLevel);
     int getMaxSubCardLevel(int enhancementLevel);
     int getMaxEnhancementLevel() const;
@@ -369,8 +370,14 @@ private:
     // 延迟保存相关
     QTimer* configSaveTimer; // 配置保存延迟定时器
     
+    // 香料配置相关
+    QTableWidget* spiceTable; // 香料配置表格
+    
 private slots:
     void onConfigSaveTimeout(); // 配置保存超时槽函数
+    void onSpiceConfigChanged(); // 香料配置改变槽函数
+    void loadSpiceConfig(); // 加载香料配置
+    void saveSpiceConfig(); // 保存香料配置
     
 public:
     void updateRecipeCombo(); // 更新配方选择下拉框

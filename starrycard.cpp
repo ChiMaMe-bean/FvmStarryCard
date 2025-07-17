@@ -16,7 +16,13 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QDebug>
+#include <QTableWidget>
+#include <QSpinBox>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QHeaderView>
 #include <QMouseEvent>
 #include <QThread>
 #include <QTime>
@@ -269,106 +275,8 @@ void StarryCard::setupUI()
     // 创建强化方案配置页面
     QWidget *enhancementPage = createEnhancementConfigPage();
     
-    // 创建第三个页面 - 与页面二风格保持一致
-    QWidget *page3 = new QWidget();
-    page3->setStyleSheet("background-color: transparent;");
-    
-    QVBoxLayout* page3Layout = new QVBoxLayout(page3);
-    page3Layout->setContentsMargins(5, 5, 5, 5);
-    page3Layout->setSpacing(10);
-    
-    // 添加标题
-    QLabel* page3Title = new QLabel("制卡方案");
-    page3Title->setAlignment(Qt::AlignCenter);
-    page3Title->setStyleSheet(R"(
-        font-size: 16px;
-        font-weight: bold; 
-        color: #003D7A;
-        background-color: rgba(125, 197, 255, 150);
-        border-radius: 8px;
-        padding: 8px;
-    )");
-    page3Layout->addWidget(page3Title);
-    
-    // 创建配置区域
-    QWidget* configArea = new QWidget();
-    configArea->setStyleSheet(R"(
-        QWidget {
-            background-color: rgba(255, 255, 255, 160);
-            border: 2px solid rgba(102, 204, 255, 200);
-            border-radius: 8px;
-        }
-    )");
-    
-    QVBoxLayout* configLayout = new QVBoxLayout(configArea);
-    configLayout->setContentsMargins(15, 15, 15, 15);
-    configLayout->setSpacing(10);
-    
-    // 添加一些示例配置选项
-    QLabel* configLabel = new QLabel("此页面预留用于配方和香料的制卡方案配置");
-    configLabel->setAlignment(Qt::AlignCenter);
-    configLabel->setStyleSheet(R"(
-        color: #003D7A;
-        font-size: 14px;
-        padding: 20px;
-    )");
-    configLayout->addWidget(configLabel);
-    
-    // 添加一些占位按钮
-    QHBoxLayout* buttonLayout = new QHBoxLayout();
-    buttonLayout->setSpacing(10);
-    
-    QPushButton* option1Btn = new QPushButton("选项1");
-    option1Btn->setFixedSize(120, 35);
-    option1Btn->setStyleSheet(R"(
-        QPushButton {
-            background-color: rgba(102, 204, 255, 200);
-            color: #003D7A;
-            border: 2px solid rgba(102, 204, 255, 255);
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 12px;
-        }
-        QPushButton:hover {
-            background-color: rgba(102, 204, 255, 255);
-            color: white;
-        }
-        QPushButton:pressed {
-            background-color: rgba(0, 61, 122, 200);
-            color: white;
-        }
-    )");
-    
-    QPushButton* option2Btn = new QPushButton("选项2");
-    option2Btn->setFixedSize(120, 35);
-    option2Btn->setStyleSheet(R"(
-        QPushButton {
-            background-color: rgba(125, 197, 255, 200);
-            color: #003D7A;
-            border: 2px solid rgba(125, 197, 255, 255);
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 12px;
-        }
-        QPushButton:hover {
-            background-color: rgba(125, 197, 255, 255);
-            color: white;
-        }
-        QPushButton:pressed {
-            background-color: rgba(0, 61, 122, 200);
-            color: white;
-        }
-    )");
-    
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(option1Btn);
-    buttonLayout->addWidget(option2Btn);
-    buttonLayout->addStretch();
-    
-    configLayout->addLayout(buttonLayout);
-    
-    page3Layout->addWidget(configArea, 1);
-    page3Layout->addStretch();
+    // 创建第三个页面 - 香料配置页面
+    QWidget *page3 = createSpiceConfigPage();
 
     // 创建第四个页面 - 与页面三风格保持一致
     QWidget *page4 = new QWidget();
@@ -2636,7 +2544,7 @@ void StarryCard::loadEnhancementConfig()
 void StarryCard::loadEnhancementConfigFromFile()
 {
     QString fileName = QFileDialog::getOpenFileName(this, 
-        "选择强化配置文件", 
+        "选择强化方案配置文件", 
         "", 
         "JSON配置文件 (*.json);;所有文件 (*.*)");
     
@@ -3127,7 +3035,7 @@ CardSettingDialog::CardSettingDialog(int row, const QStringList& cardTypes, QWid
             border-radius: 3px;
         }
         QCheckBox::indicator:checked {
-            border: 2px solid rgba(102, 204, 255, 255);
+            image: url(:/items/icons/勾选.svg);
             background-color: rgba(102, 204, 255, 200);
             border-radius: 3px;
         }
@@ -3642,7 +3550,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         
         // 点击下翻按钮
         leftClickDPI(hwndGame, 535, 563);
-        sleepByQElapsedTimer(100);
+        sleepByQElapsedTimer(50);
         
         // 只检查第十个位置（翻页后这个位置会更新）
         QImage screenshotAfterPage = captureWindowByHandle(hwndGame,"主页面");
@@ -4127,14 +4035,14 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
     // 循环点击上翻按钮直到翻到顶部
     int maxPageUpAttempts = 20;
     for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
-        leftClickDPI(hwndGame, 532, 539);
-        sleepByQElapsedTimer(100);
-        
         if (isPageAtTop()) {
             qDebug() << "成功翻页到顶部，总共点击" << (attempt + 1) << "次";
             addLog(QString("成功翻页到顶部，总共点击 %1 次").arg(attempt + 1), LogType::Success);
             break;
         }
+
+        leftClickDPI(hwndGame, 532, 539);
+        sleepByQElapsedTimer(100);
         
         if (attempt == maxPageUpAttempts - 1) {
             qDebug() << "翻页到顶部失败，已达最大尝试次数";
@@ -4362,19 +4270,6 @@ void StarryCard::updateRecipeCombo()
 // 发送鼠标消息,计算DPI缩放
 BOOL StarryCard::leftClickDPI(HWND hwnd, int x, int y)
 {
-    // 获取DPI缩放因子 - 使用更精确的方法
-    // HDC hdc = GetDC(hwnd);  // 获取目标窗口的设备上下文
-    // if (!hdc) {
-    //     // 如果获取失败，使用桌面的设备上下文
-    //     hdc = GetDC(GetDesktopWindow());
-    // }
-    
-    // int dpi = 96;  // 默认DPI
-    // if (hdc) {
-    //     dpi = GetDeviceCaps(hdc, LOGPIXELSX);
-    //     ReleaseDC(hwnd, hdc);
-    // }
-    
     double scaleFactor = static_cast<double>(DPI) / 96.0;
     
     // 计算DPI缩放后的坐标
@@ -5247,4 +5142,417 @@ bool StarryCard::loadGlobalEnhancementConfig()
     qDebug() << "- 已加载" << g_enhancementConfig.levelConfigs.size() << "个等级配置";
     
     return true;
+}
+
+// ================================== 香料配置页面功能 ==================================
+
+QWidget* StarryCard::createSpiceConfigPage()
+{
+    QWidget* page = new QWidget();
+    page->setStyleSheet("background-color: transparent;");
+
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    // 创建标题
+    QLabel* titleLabel = new QLabel("香料配置");
+    titleLabel->setAlignment(Qt::AlignCenter);
+    titleLabel->setStyleSheet(R"(
+        font-size: 16px; 
+        font-weight: bold; 
+        color: #003D7A;
+        background-color: rgba(125, 197, 255, 150);
+        border-radius: 8px;
+        padding: 8px;
+        margin: 5px 0;
+    )");
+    layout->addWidget(titleLabel);
+    
+    // 创建表格
+    spiceTable = new QTableWidget(9, 4);
+    spiceTable->setStyleSheet(R"(
+        QTableWidget {
+            gridline-color: rgba(102, 204, 255, 120);
+            background-color: rgba(255, 255, 255, 160);
+            alternate-background-color: rgba(102, 204, 255, 80);
+            border: 2px solid rgba(102, 204, 255, 200);
+            border-radius: 8px;
+        }
+        QTableWidget::item {
+            padding: 3px;
+            border: none;
+        }
+        QHeaderView::section {
+            background-color: rgba(102, 204, 255, 200);
+            color: #003D7A;
+            padding: 6px;
+            border: 1px solid rgba(102, 204, 255, 150);
+            font-weight: bold;
+            font-size: 14px;
+        }
+        QComboBox {
+            background-color: rgba(255, 255, 255, 220);
+            border: 1px solid rgba(102, 204, 255, 150);
+            border-radius: 4px;
+            padding: 2px 4px;
+            color: #003D7A;
+        }
+        QComboBox:hover {
+            background-color: rgba(102, 204, 255, 100);
+        }
+        QComboBox::drop-down {
+            border: none;
+            width: 18px;
+            background-color: rgba(102, 204, 255, 150);
+            border-radius: 3px;
+        }
+        QComboBox::down-arrow {
+            image: url(:/items/icons/downArrow.svg);
+            width: 12px;
+            height: 12px;
+            margin-right: 1px;
+        }
+        QCheckBox {
+            color: #003D7A;
+            font-weight: bold;
+        }
+        QCheckBox::indicator {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(102, 204, 255, 200);
+            border-radius: 4px;
+            background-color: rgba(255, 255, 255, 200);
+        }
+        QCheckBox::indicator:checked {
+            background-color: rgba(102, 204, 255, 200);
+            image: url(:/items/icons/勾选.svg);
+        }
+        QSpinBox {
+            background-color: rgba(255, 255, 255, 220);
+            border: 1px solid rgba(102, 204, 255, 150);
+            border-radius: 4px;
+            padding: 2px 4px;
+            color: #003D7A;
+        }
+        QSpinBox:disabled {
+            background-color: rgba(128, 128, 128, 100);
+            color: rgba(128, 128, 128, 200);
+        }
+        QSpinBox::up-button {
+            image: url(:/items/icons/uparrow_1f.svg);
+            background-color: rgba(102, 204, 255, 150);
+            border: 1px solid rgba(102, 204, 255, 200);
+            border-radius: 3px;
+            width: 16px;
+            height: 13px;
+            subcontrol-origin: border;
+            subcontrol-position: top right;
+            margin-right: 2px;
+            margin-top: 1px;
+        }
+        QSpinBox::up-button:hover {
+            background-color: rgba(102, 204, 255, 200);
+        }
+        QSpinBox::down-button {
+            image: url(:/items/icons/downarrow_1f.svg);
+            background-color: rgba(102, 204, 255, 150);
+            border: 1px solid rgba(102, 204, 255, 200);
+            border-radius: 3px;
+            width: 16px;
+            height: 13px;
+            subcontrol-origin: border;
+            subcontrol-position: bottom right;
+            margin-right: 2px;
+            margin-bottom: 1px;
+        }
+        QSpinBox::down-button:hover {
+            background-color: rgba(102, 204, 255, 200);
+        }
+    )");
+    
+    // 设置表头
+    QStringList headers = {"香料种类", "是否绑定", "数量限制", "限制数量"};
+    spiceTable->setHorizontalHeaderLabels(headers);
+    
+    // 设置表格属性
+    spiceTable->verticalHeader()->setVisible(false);
+    spiceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    spiceTable->setAlternatingRowColors(true);
+    spiceTable->horizontalHeader()->setStretchLastSection(true);
+    spiceTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    spiceTable->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    
+    // 设置表格的大小策略和固定宽度
+    spiceTable->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    spiceTable->setFixedWidth(540);  // 增加总宽度以适应更大的图标
+    
+    // 设置具体的列宽
+    spiceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    spiceTable->setColumnWidth(0, 110);   // 香料种类（增加宽度以适应大图标）
+    spiceTable->setColumnWidth(1, 75);    // 是否绑定
+    spiceTable->setColumnWidth(2, 75);   // 数量限制
+    spiceTable->setColumnWidth(3, 100);   // 限制数量
+    
+    // 设置行高以适应大图标
+    spiceTable->verticalHeader()->setDefaultSectionSize(40);
+    
+    // 香料种类列表
+    QStringList spiceTypes = {
+        "天然香料", "上等香料", "秘制香料", "极品香料", "皇室香料",
+        "魔幻香料", "精灵香料", "天使香料", "圣灵香料"
+    };
+    
+    // 填充表格内容
+    for (int row = 0; row < 9; ++row) {
+        // 香料种类标签（包含图标）
+        QWidget* spiceWidget = new QWidget();
+        QHBoxLayout* spiceLayout = new QHBoxLayout(spiceWidget);
+        spiceLayout->setContentsMargins(5, 0, 5, 0);
+        spiceLayout->setSpacing(5);
+        
+        // 香料图标
+        QLabel* spiceIcon = new QLabel();
+        QString iconPath = QString(":/items/spices/%1.png").arg(spiceTypes[row]);
+        QPixmap pixmap(iconPath);
+        if (!pixmap.isNull()) {
+            spiceIcon->setPixmap(pixmap.scaled(35, 35, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        }
+        spiceIcon->setAlignment(Qt::AlignCenter);
+        
+        // 香料名称
+        QLabel* spiceLabel = new QLabel(spiceTypes[row]);
+        spiceLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        spiceLabel->setStyleSheet(R"(
+            font-weight: bold; 
+            color: #003D7A;
+            background-color: transparent;
+        )");
+        
+        spiceLayout->addWidget(spiceIcon);
+        spiceLayout->addWidget(spiceLabel);
+        spiceLayout->addStretch();
+        
+        spiceTable->setCellWidget(row, 0, spiceWidget);
+        
+        // 是否绑定复选框
+        QCheckBox* bindCheckBox = new QCheckBox();
+        bindCheckBox->setProperty("row", row);
+        connect(bindCheckBox, &QCheckBox::toggled, this, &StarryCard::onSpiceConfigChanged);
+        
+        QWidget* bindWidget = new QWidget();
+        QHBoxLayout* bindLayout = new QHBoxLayout(bindWidget);
+        bindLayout->setContentsMargins(0, 0, 0, 0);
+        bindLayout->addStretch();
+        bindLayout->addWidget(bindCheckBox);
+        bindLayout->addStretch();
+        
+        spiceTable->setCellWidget(row, 1, bindWidget);
+        
+        // 数量限制下拉框
+        QComboBox* limitCombo = new QComboBox();
+        limitCombo->addItem("无限制");
+        limitCombo->addItem("限制");
+        limitCombo->setProperty("row", row);
+        connect(limitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &StarryCard::onSpiceConfigChanged);
+        
+        spiceTable->setCellWidget(row, 2, limitCombo);
+        
+        // 限制数量输入框
+        QSpinBox* amountSpinBox = new QSpinBox();
+        amountSpinBox->setMinimum(5);
+        amountSpinBox->setMaximum(32765);
+        amountSpinBox->setSingleStep(5);
+        amountSpinBox->setSuffix(" 个");
+        amountSpinBox->setValue(100);
+        amountSpinBox->setEnabled(false);  // 默认禁用
+        amountSpinBox->setProperty("row", row);
+        
+        // 自定义验证器，确保输入值为5的倍数（只在编辑完成时验证）
+        connect(amountSpinBox, &QSpinBox::editingFinished, 
+                [amountSpinBox]() {
+                    int value = amountSpinBox->value();
+                    if (value % 5 != 0) {
+                        // 向下取整到5的倍数
+                        int newValue = (value / 5) * 5;
+                        amountSpinBox->blockSignals(true);
+                        amountSpinBox->setValue(newValue);
+                        amountSpinBox->blockSignals(false);
+                    }
+                });
+        
+        connect(amountSpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, &StarryCard::onSpiceConfigChanged);
+        
+        spiceTable->setCellWidget(row, 3, amountSpinBox);
+    }
+    
+    layout->addWidget(spiceTable);
+    
+    // 加载现有配置
+    loadSpiceConfig();
+    
+    return page;
+}
+
+void StarryCard::onSpiceConfigChanged()
+{
+    QObject* sender = QObject::sender();
+    if (!sender) return;
+    
+    int row = sender->property("row").toInt();
+    
+    // 获取数量限制下拉框和限制数量输入框
+    QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 2));
+    QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 3));
+    
+    if (limitCombo && amountSpinBox) {
+        // 根据数量限制选择启用/禁用限制数量输入框
+        bool isLimited = (limitCombo->currentText() == "限制");
+        amountSpinBox->setEnabled(isLimited);
+        
+        if (!isLimited) {
+            amountSpinBox->setValue(0);
+        } else if (amountSpinBox->value() == 0) {
+            amountSpinBox->setValue(100);  // 默认值
+        }
+    }
+    
+    // 保存配置
+    saveSpiceConfig();
+    
+    addLog("香料配置已更新", LogType::Info);
+}
+
+void StarryCard::loadSpiceConfig()
+{
+    QFile file("spice_config.json");
+    if (!file.open(QIODevice::ReadOnly)) {
+        addLog("香料配置文件不存在，使用默认配置", LogType::Warning);
+        return;
+    }
+    
+    QByteArray data = file.readAll();
+    file.close();
+    
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &error);
+    
+    if (error.error != QJsonParseError::NoError) {
+        addLog("香料配置文件解析失败: " + error.errorString(), LogType::Error);
+        return;
+    }
+    
+    if (!doc.isObject()) {
+        addLog("香料配置文件格式错误", LogType::Error);
+        return;
+    }
+    
+    QJsonObject root = doc.object();
+    QJsonArray spicesArray = root["spices"].toArray();
+    
+    if (spicesArray.size() != 9) {
+        addLog("香料配置文件数据不完整", LogType::Warning);
+        return;
+    }
+    
+    // 加载配置到表格
+    for (int row = 0; row < 9 && row < spicesArray.size(); ++row) {
+        QJsonObject spiceObj = spicesArray[row].toObject();
+        
+        // 设置绑定状态
+        QWidget* bindWidget = spiceTable->cellWidget(row, 1);
+        if (bindWidget) {
+            QCheckBox* bindCheckBox = bindWidget->findChild<QCheckBox*>();
+            if (bindCheckBox) {
+                bindCheckBox->setChecked(spiceObj["bound"].toBool());
+            }
+        }
+        
+        // 设置数量限制类型
+        QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 2));
+        if (limitCombo) {
+            QString limitType = spiceObj["limitType"].toString();
+            int index = limitCombo->findText(limitType);
+            if (index >= 0) {
+                limitCombo->setCurrentIndex(index);
+            }
+        }
+        
+        // 设置限制数量
+        QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 3));
+        if (amountSpinBox) {
+            int amount = spiceObj["limitAmount"].toInt();
+            amountSpinBox->setValue(amount);
+            
+            // 根据限制类型启用/禁用输入框
+            bool isLimited = spiceObj["limitType"].toString() == "限制";
+            amountSpinBox->setEnabled(isLimited);
+        }
+    }
+    
+    addLog("香料配置文件加载成功", LogType::Success);
+}
+
+void StarryCard::saveSpiceConfig()
+{
+    if (!spiceTable) return;
+    
+    QJsonObject root;
+    QJsonArray spicesArray;
+    
+    QStringList spiceTypes = {
+        "天然香料", "上等香料", "秘制香料", "极品香料", "皇室香料",
+        "魔幻香料", "精灵香料", "天使香料", "圣灵香料"
+    };
+    
+    for (int row = 0; row < 9; ++row) {
+        QJsonObject spiceObj;
+        spiceObj["name"] = spiceTypes[row];
+        
+        // 获取绑定状态
+        QWidget* bindWidget = spiceTable->cellWidget(row, 1);
+        bool bound = false;
+        if (bindWidget) {
+            QCheckBox* bindCheckBox = bindWidget->findChild<QCheckBox*>();
+            if (bindCheckBox) {
+                bound = bindCheckBox->isChecked();
+            }
+        }
+        spiceObj["bound"] = bound;
+        
+        // 获取数量限制类型
+        QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 2));
+        QString limitType = "无限制";
+        if (limitCombo) {
+            limitType = limitCombo->currentText();
+        }
+        spiceObj["limitType"] = limitType;
+        
+        // 获取限制数量
+        QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 3));
+        int amount = 0;
+        if (amountSpinBox) {
+            amount = amountSpinBox->value();
+        }
+        spiceObj["limitAmount"] = amount;
+        
+        spicesArray.append(spiceObj);
+    }
+    
+    root["spices"] = spicesArray;
+    
+    QJsonDocument doc(root);
+    
+    QFile file("spice_config.json");
+    if (!file.open(QIODevice::WriteOnly)) {
+        addLog("无法保存香料配置文件", LogType::Error);
+        return;
+    }
+    
+    file.write(doc.toJson());
+    file.close();
+    
+    qDebug() << "香料配置已保存";
 }

@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QPainter>
 #include <QPen>
+#include <QColor>
 
 // 获取应用程序数据目录
 QString getAppDataPath() {
@@ -211,6 +212,42 @@ void CardRecognizer::loadBindTemplate()
     }
 }
 
+int CardRecognizer::findStartYUsingColorDetection(const QImage& cardAreaImage)
+{
+    // 目标颜色 #002D51 (RGB: 0, 45, 81)
+    QColor targetColor(0, 45, 81);
+    int targetRgb = targetColor.rgb();
+    
+    // 从第一行开始检查，但限制最大搜索范围为卡片的高度+3
+    for (int y = 0; y < 60; ++y) {
+        // 检查第47个像素（x=44，因为索引从0开始）
+        if (46 < cardAreaImage.width()) {
+            QColor pixelColor = cardAreaImage.pixelColor(46, y);
+            
+            if (pixelColor.rgb() == targetRgb) {
+                // 向右检查3个像素
+                bool allMatch = true;
+                for (int x = 47; x < 50 && x < cardAreaImage.width(); ++x) {
+                    QColor rightPixelColor = cardAreaImage.pixelColor(x, y);
+                    if (rightPixelColor.rgb() != targetRgb) {
+                        allMatch = false;
+                        break;
+                    }
+                }
+                
+                if (allMatch) {
+                    // 找到分隔线，返回该位置+1
+                    qDebug() << "通过颜色检测找到分隔线，y坐标:" << y;
+                    return y + 1;
+                }
+            }
+        }
+    }
+    
+    qDebug() << "未通过颜色检测找到分隔线";
+    return -1;
+}
+
 int CardRecognizer::recognizeCardLevel(const cv::Mat& cardMat)
 {
     // 检查卡片尺寸是否足够
@@ -407,13 +444,6 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
 {
     std::vector<CardInfo> results;
     auto startTime = std::chrono::high_resolution_clock::now();
-    
-    cv::Mat img = qImageToCvMat(screenshot);
-    
-    if (img.empty()) {
-        qDebug() << "截图转换失败";
-        return results;
-    }
 
     // 将目标卡片类型转换为std::vector<std::string>
     std::vector<std::string> targetCards;
@@ -421,31 +451,23 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
         targetCards.push_back(cardType.toStdString());
     }
     
-    qDebug() << "识别目标卡片类型:" << targetCardTypes.size() << "种";
+    // qDebug() << "识别目标卡片类型:" << targetCardTypes.size() << "种";
 
     try {
-        // 提取卡片区域
-        cv::Mat cardArea = img(CARD_AREA).clone();
+        // 获取卡片区域图像
+        QImage cardAreaImage = screenshot.copy(CARD_AREA_ROI);
+        // 使用颜色检测方法获取startY
+        int startY = findStartYUsingColorDetection(cardAreaImage);
         
-        // 在限制范围内查找顶部分隔线位置
-        cv::Mat searchArea = cardArea(cv::Rect(0, 0, cardArea.cols, std::min(MAX_SEPARATOR_SEARCH_HEIGHT, cardArea.rows)));
-        cv::Mat result;
-        cv::matchTemplate(searchArea, separatorLine, result, cv::TM_CCOEFF_NORMED);
-        
-        double minVal, maxVal;
-        cv::Point minLoc, maxLoc;
-        cv::minMaxLoc(result, &minVal, &maxVal, &minLoc, &maxLoc);
-        
-        if (maxVal < MATCH_THRESHOLD) {
-            qDebug() << "未找到顶部分隔线，匹配度:" << maxVal;
+        if (startY == -1) {
+            qDebug() << "未找到分隔线";
             return results;
         }
+        
+        // qDebug() << "找到分隔线，位置:" << startY;
 
-        // qDebug() << "找到分隔线，位置:" << maxLoc.y << "，匹配度:" << maxVal;
-
-        // 截取分隔线下方的卡片区域
-        int startY = maxLoc.y + separatorLine.rows;
-        int availableHeight = cardArea.rows - startY;
+        // 计算实际的处理区域
+        int availableHeight = cardAreaImage.height() - startY;
         int processHeight = std::min(availableHeight, CARD_AREA_HEIGHT);
         
         if (processHeight <= 0) {
@@ -453,7 +475,9 @@ std::vector<CardInfo> CardRecognizer::recognizeCardsDetailed(const QImage& scree
             return results;
         }
         
-        cv::Mat cardsArea = cardArea(cv::Rect(0, startY, cardArea.cols, processHeight)).clone();
+        // 截取处理区域的图像
+        QImage cardsAreaImage = cardAreaImage.copy(0, startY, cardAreaImage.width(), processHeight);
+        cv::Mat cardsArea = qImageToCvMat(cardsAreaImage);
 
         // 保存卡片区域图像
         // QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
