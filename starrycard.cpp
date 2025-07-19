@@ -923,7 +923,7 @@ void StarryCard::startEnhancement()
         enhancementBtn->setText("停止强化");
         addLog("开始强化流程", LogType::Success);
 
-        while(!goToPage(PageType::CardEnhance))
+        while(!goToPage(PageType::CardEnhance) && isEnhancing)
         {
             addLog("未找到卡片强化页面，尝试刷新游戏窗口...", LogType::Warning);
             // 刷新游戏窗口
@@ -953,7 +953,6 @@ void StarryCard::performEnhancement()
         addLog("目标窗口已失效，强化已停止！", LogType::Error);
         return;
     }
-    addLog("执行强化操作", LogType::Info);
 
     while (isEnhancing)
     {
@@ -976,9 +975,14 @@ void StarryCard::performEnhancement()
 void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
 {
     addLog("开始分析卡片强化配置", LogType::Info);
+
+    // int maxLevelInVector = 0;
+    // for (const auto& card : cardVector) {
+    //     maxLevelInVector = std::max(maxLevelInVector, card.level);
+    // }
     
-    // 遍历每个强化等级
-    for (int level = minEnhancementLevel; level <= maxEnhancementLevel; ++level) {
+    // 从最高等级开始，遍历每个强化等级
+    for (int level = maxEnhancementLevel; level >= minEnhancementLevel; --level) {
         // 检查是否有对应的配置
         if (!g_enhancementConfig.hasLevelConfig(level - 1, level)) {
             addLog(QString("跳过等级 %1-%2：无配置").arg(level - 1).arg(level), LogType::Info);
@@ -1022,9 +1026,9 @@ void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
         
         // 2. 检查副卡
         std::vector<int> requiredSubcards;
-        if (levelConfig.subcard1 > 0) requiredSubcards.push_back(levelConfig.subcard1);
-        if (levelConfig.subcard2 > 0) requiredSubcards.push_back(levelConfig.subcard2);
-        if (levelConfig.subcard3 > 0) requiredSubcards.push_back(levelConfig.subcard3);
+        if (levelConfig.subcard1 >= 0) requiredSubcards.push_back(levelConfig.subcard1);
+        if (levelConfig.subcard2 >= 0) requiredSubcards.push_back(levelConfig.subcard2);
+        if (levelConfig.subcard3 >= 0) requiredSubcards.push_back(levelConfig.subcard3);
         
         std::vector<CardInfo> availableSubcards;
         for (const auto& card : cardVector) {
@@ -1051,6 +1055,12 @@ void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
                 addLog(QString("等级 %1-%2：缺少副卡 %3 (%4星)").arg(level - 1).arg(level)
                       .arg(levelConfig.subCardType).arg(requiredLevel), LogType::Warning);
                 hasEnoughCards = false;
+                if(level - 1 > requiredLevel)
+                {
+                    // 如果缺少的副卡不是主卡同等级的卡，尝试生产缺少的副卡
+                    addLog(QString("%1 星主卡充足，尝试生产:%2 星副卡").arg(level - 1).arg(requiredLevel), LogType::Info);
+                    level = requiredLevel + 1;
+                }
                 break;
             } else {
                 selectedSubcards.push_back(subcardsByLevel[requiredLevel][0]);
@@ -4958,7 +4968,7 @@ BOOL StarryCard::closeHealthTip(uint8_t retryCount)
         }
         sleepByQElapsedTimer(1000);
     }
-    addLog("健康提示未显示，关闭失败", LogType::Error);
+    addLog("健康提示未显示", LogType::Warning);
     return FALSE;
 }
 
