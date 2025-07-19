@@ -36,6 +36,8 @@
 #include <QVector>
 #include <QList>
 #include <QPair>
+#include <QMutex>
+#include <QWaitCondition>
 #include "custombutton.h"
 #include "utils.h"
 #include "cardrecognizer.h"
@@ -53,6 +55,34 @@ enum class LogType {
     Success,    // 成功信息（绿色）
     Warning,    // 警告信息（橙色）
     Error       // 错误信息（红色）
+};
+
+// 前置声明
+class StarryCard;
+
+// 强化工作线程类
+class EnhancementWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit EnhancementWorker(StarryCard* parent);
+    void setParent(StarryCard* parent) { m_parent = parent; }
+
+public slots:
+    void startEnhancement();
+
+signals:
+    void logMessage(const QString& message, LogType type);
+    void showWarningMessage(const QString& title, const QString& message);
+    void enhancementFinished();
+    void stopEnhancementRequested();
+
+private:
+    StarryCard* m_parent;
+    void performEnhancement();
+    void performEnhancementOnce(const std::vector<CardInfo>& cardVector);
+    void threadSafeSleep(int ms);
 };
 
 // 全局强化配置数据结构
@@ -158,6 +188,9 @@ public:
     
     // 任务延时
     void sleepByQElapsedTimer(int ms);
+    
+    // 声明EnhancementWorker为友元类
+    friend class EnhancementWorker;
 
 private slots:
     void changeBackground(const QString &theme);
@@ -170,9 +203,9 @@ private slots:
     void handleButtonRelease();
     void startEnhancement();
     void stopEnhancement();
-    void performEnhancement();
-    void performEnhancementOnce(const std::vector<CardInfo>& cardVector);
     void addLog(const QString& message, LogType type = LogType::Info);
+    void showWarningMessage(const QString& title, const QString& message);
+    void onEnhancementFinished();
     int getDPIFromDC();
     void onCaptureAndRecognize();
     void onEnhancementConfigChanged();
@@ -186,9 +219,10 @@ private slots:
     void onMaxEnhancementLevelChanged();
     void onMinEnhancementLevelChanged();
     void updateEnhancementTableUI(); // 更新强化表格UI状态
-    HWND GetHallWindow(HWND hWnd);
-    bool IsGameWindowVisible(HWND hWnd);
     void clickRefresh();
+
+signals:
+    void startEnhancementSignal();
 
 protected:
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -251,6 +285,10 @@ private:
     BOOL leftClickDPI(HWND hwnd, int x, int y);
     BOOL leftClick(HWND hwnd, int x, int y);
     BOOL closeHealthTip(uint8_t retryCount = 10);
+    
+    // 窗口相关方法
+    HWND GetHallWindow(HWND hWnd);
+    bool IsGameWindowVisible(HWND hWnd);
     
     // 窗口位图获取方法
     BOOL getWindowBitmap(HWND hwnd, int& width, int& height, COLORREF*& pixelData);
@@ -367,15 +405,22 @@ private:
 
     RecipeRecognizer* recipeRecognizer; // 新增成员变量
     
+    // 线程相关
+    QThread* enhancementThread;
+    EnhancementWorker* enhancementWorker;
+    
     // 延迟保存相关
     QTimer* configSaveTimer; // 配置保存延迟定时器
+    QTimer* spiceSaveTimer; // 香料配置保存延迟定时器
     
     // 香料配置相关
     QTableWidget* spiceTable; // 香料配置表格
     
 private slots:
     void onConfigSaveTimeout(); // 配置保存超时槽函数
+    void onSpiceSaveTimeout(); // 香料配置保存超时槽函数
     void onSpiceConfigChanged(); // 香料配置改变槽函数
+    void scheduleSpiceConfigSave(); // 计划延迟保存香料配置
     void loadSpiceConfig(); // 加载香料配置
     void saveSpiceConfig(); // 保存香料配置
     

@@ -116,6 +116,12 @@ StarryCard::StarryCard(QWidget *parent)
     configSaveTimer->setSingleShot(true); // 只触发一次
     configSaveTimer->setInterval(800); // 800ms延迟，避免频繁保存
     connect(configSaveTimer, &QTimer::timeout, this, &StarryCard::onConfigSaveTimeout);
+    
+    // 初始化香料配置延迟保存定时器
+    spiceSaveTimer = new QTimer(this);
+    spiceSaveTimer->setSingleShot(true); // 只触发一次
+    spiceSaveTimer->setInterval(800); // 800ms延迟，避免频繁保存
+    connect(spiceSaveTimer, &QTimer::timeout, this, &StarryCard::onSpiceSaveTimeout);
 
     // 初始化UI
     setupUI();
@@ -158,6 +164,20 @@ StarryCard::StarryCard(QWidget *parent)
     
     // 更新配方选择下拉框
     updateRecipeCombo();
+    
+    // 初始化线程
+    enhancementThread = new QThread(this);
+    enhancementWorker = new EnhancementWorker(this);
+    enhancementWorker->moveToThread(enhancementThread);
+    
+    // 连接信号和槽 - 使用QueuedConnection确保线程安全
+    connect(this, &StarryCard::startEnhancementSignal, enhancementWorker, &EnhancementWorker::startEnhancement, Qt::QueuedConnection);
+    connect(enhancementWorker, &EnhancementWorker::logMessage, this, &StarryCard::addLog, Qt::QueuedConnection);
+    connect(enhancementWorker, &EnhancementWorker::showWarningMessage, this, &StarryCard::showWarningMessage, Qt::QueuedConnection);
+    connect(enhancementWorker, &EnhancementWorker::enhancementFinished, this, &StarryCard::onEnhancementFinished, Qt::QueuedConnection);
+    
+    // 启动线程
+    enhancementThread->start();
     
     // 测试图像哈希算法
     qDebug() << "=== 测试图像哈希算法 ===";
@@ -705,6 +725,12 @@ void StarryCard::setupUI()
 
 StarryCard::~StarryCard()
 {
+    // 清理线程
+    if (enhancementThread && enhancementThread->isRunning()) {
+        enhancementThread->quit();
+        enhancementThread->wait();
+    }
+    
     // 清理全局像素数据
     if (globalPixelData) {
         delete[] globalPixelData;
@@ -730,6 +756,11 @@ StarryCard::~StarryCard()
         configSaveTimer->stop();
         delete configSaveTimer;
         configSaveTimer = nullptr;
+    }
+    if (spiceSaveTimer) {
+        spiceSaveTimer->stop();
+        delete spiceSaveTimer;
+        spiceSaveTimer = nullptr;
     }
 }
 
@@ -891,292 +922,46 @@ void StarryCard::stopMouseTracking() {
 
 void StarryCard::startEnhancement()
 {
-    if (!hwndGame || !IsWindow(hwndGame)) {
-        QMessageBox::warning(this, "错误", "请先绑定有效的游戏窗口！");
-        return;
-    }
-
     if (!isEnhancing && enhancementBtn) {
-        // 预先加载所需的卡片类型
+        // 在主线程中读取UI控件的值并保存到成员变量
+        if (maxEnhancementLevelSpinBox && minEnhancementLevelSpinBox) {
+            maxEnhancementLevel = maxEnhancementLevelSpinBox->value();
+            minEnhancementLevel = minEnhancementLevelSpinBox->value();
+        }
+        
+        // 在主线程中预先加载所需的卡片类型
         requiredCardTypes = getRequiredCardTypesFromConfig();
         
-        if (requiredCardTypes.isEmpty()) {
-            QMessageBox::warning(this, "警告", "配置文件中未找到有效的卡片类型配置！\n请先在卡片设置中配置主卡和副卡类型。");
-            addLog("强化流程启动失败：未找到有效的卡片类型配置", LogType::Error);
-            return;
-        }
-
-        // 从UI获取最高强化等级和最低强化等级
-        maxEnhancementLevel = maxEnhancementLevelSpinBox->value();
-        minEnhancementLevel = minEnhancementLevelSpinBox->value();
-        
-        // 加载全局强化配置数据
+        // 在主线程中预先加载全局强化配置
         if (loadGlobalEnhancementConfig()) {
             addLog("全局强化配置加载成功", LogType::Success);
         } else {
             addLog("全局强化配置加载失败，使用默认配置", LogType::Warning);
         }
         
-        addLog(QString("强化流程准备就绪，将识别以下卡片类型: %1").arg(requiredCardTypes.join(", ")), LogType::Info);
-        
-        isEnhancing = true;
         enhancementBtn->setText("停止强化");
-        addLog("开始强化流程", LogType::Success);
-
-        while(!goToPage(PageType::CardEnhance) && isEnhancing)
-        {
-            addLog("未找到卡片强化页面，尝试刷新游戏窗口...", LogType::Warning);
-            // 刷新游戏窗口
-            if(!refreshGameWindow())
-            {
-                stopEnhancement();
-                QMessageBox::warning(this, "错误", "刷新游戏窗口失败，强化已停止！");
-                addLog("刷新游戏窗口失败，强化已停止！", LogType::Error);
-                return;
-            }
-            // 关闭健康提示
-            closeHealthTip();
-            sleepByQElapsedTimer(1000);
-        }
-        
-        performEnhancement();
+        emit startEnhancementSignal();
     } else {
         stopEnhancement();
     }
 }
 
-void StarryCard::performEnhancement()
+void StarryCard::showWarningMessage(const QString& title, const QString& message)
 {
-    if (!hwndGame || !IsWindow(hwndGame)) {
-        stopEnhancement();
-        QMessageBox::warning(this, "错误", "目标窗口已失效，强化已停止！");
-        addLog("目标窗口已失效，强化已停止！", LogType::Error);
-        return;
-    }
-
-    while (isEnhancing)
-    {
-        QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
-        std::vector<CardInfo> cardVector;
-        cardVector = cardRecognizer->recognizeCards(screenshot, requiredCardTypes);
-        if (cardVector.empty())
-        {
-            addLog("未找到目标卡片", LogType::Error);
-            break;
-        }
-
-        // 调用强化处理方法
-        performEnhancementOnce(cardVector);
-    }
-
-    stopEnhancement(); // 强化完成，停止强化
+    QMessageBox::warning(this, title, message);
 }
 
-void StarryCard::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
+void StarryCard::onEnhancementFinished()
 {
-    addLog("开始分析卡片强化配置", LogType::Info);
-
-    // int maxLevelInVector = 0;
-    // for (const auto& card : cardVector) {
-    //     maxLevelInVector = std::max(maxLevelInVector, card.level);
-    // }
-    
-    // 从最高等级开始，遍历每个强化等级
-    for (int level = maxEnhancementLevel; level >= minEnhancementLevel; --level) {
-        // 检查是否有对应的配置
-        if (!g_enhancementConfig.hasLevelConfig(level - 1, level)) {
-            addLog(QString("跳过等级 %1-%2：无配置").arg(level - 1).arg(level), LogType::Info);
-            continue;
-        }
+    if (enhancementBtn) {
+        isEnhancing = false;
+        enhancementBtn->setText("开始强化");
         
-        auto levelConfig = g_enhancementConfig.getLevelConfig(level - 1, level);
-        addLog(QString("检查等级 %1-%2 的配置").arg(level - 1).arg(level), LogType::Info);
+        // 清空缓存的卡片类型
+        requiredCardTypes.clear();
         
-        // 检查是否有足够的卡片满足要求
-        std::vector<CardInfo> selectedCards;
-        bool hasEnoughCards = true;
-        
-        // 1. 检查主卡（目标等级-1的星级）
-        CardInfo mainCard;
-        bool foundMainCard = false;
-        
-        for (const auto& card : cardVector) {
-            if (card.name == levelConfig.mainCardType && 
-                card.level == level - 1) {
-                // 检查绑定状态匹配
-                if ((levelConfig.mainCardBound && card.isBound) || 
-                    (levelConfig.mainCardUnbound && !card.isBound)) {
-                    mainCard = card;
-                    foundMainCard = true;
-                    break;
-                }
-            }
-        }
-        
-        if (!foundMainCard) {
-            addLog(QString("等级 %1-%2：缺少主卡 %3 (%4星)").arg(level - 1).arg(level)
-                  .arg(levelConfig.mainCardType).arg(level - 1), LogType::Warning);
-            hasEnoughCards = false;
-            continue;
-        } else {
-            selectedCards.push_back(mainCard);
-            addLog(QString("找到主卡：%1 (%2星, %3)").arg(mainCard.name)
-                  .arg(mainCard.level).arg(mainCard.isBound ? "绑定" : "未绑定"), LogType::Success);
-        }
-        
-        // 2. 检查副卡
-        std::vector<int> requiredSubcards;
-        if (levelConfig.subcard1 >= 0) requiredSubcards.push_back(levelConfig.subcard1);
-        if (levelConfig.subcard2 >= 0) requiredSubcards.push_back(levelConfig.subcard2);
-        if (levelConfig.subcard3 >= 0) requiredSubcards.push_back(levelConfig.subcard3);
-        
-        std::vector<CardInfo> availableSubcards;
-        for (const auto& card : cardVector) {
-            if (card.name == levelConfig.subCardType && 
-                card.centerPosition != mainCard.centerPosition) { // 不能是主卡
-                // 检查绑定状态匹配
-                if ((levelConfig.subCardBound && card.isBound) || 
-                    (levelConfig.subCardUnbound && !card.isBound)) {
-                    availableSubcards.push_back(card);
-                }
-            }
-        }
-        
-        // 按星级分组副卡
-        std::map<int, std::vector<CardInfo>> subcardsByLevel;
-        for (const auto& card : availableSubcards) {
-            subcardsByLevel[card.level].push_back(card);
-        }
-        
-        // 检查是否有足够的副卡
-        std::vector<CardInfo> selectedSubcards;
-        for (int requiredLevel : requiredSubcards) {
-            if (subcardsByLevel[requiredLevel].empty()) {
-                addLog(QString("等级 %1-%2：缺少副卡 %3 (%4星)").arg(level - 1).arg(level)
-                      .arg(levelConfig.subCardType).arg(requiredLevel), LogType::Warning);
-                hasEnoughCards = false;
-                if(level - 1 > requiredLevel)
-                {
-                    // 如果缺少的副卡不是主卡同等级的卡，尝试生产缺少的副卡
-                    addLog(QString("%1 星主卡充足，尝试生产:%2 星副卡").arg(level - 1).arg(requiredLevel), LogType::Info);
-                    level = requiredLevel + 1;
-                }
-                break;
-            } else {
-                selectedSubcards.push_back(subcardsByLevel[requiredLevel][0]);
-                subcardsByLevel[requiredLevel].erase(subcardsByLevel[requiredLevel].begin());
-                addLog(QString("找到副卡：%1 (%2星, %3)").arg(selectedSubcards.back().name)
-                      .arg(selectedSubcards.back().level).arg(selectedSubcards.back().isBound ? "绑定" : "未绑定"), LogType::Success);
-            }
-        }
-        
-        if (hasEnoughCards) {
-            addLog(QString("等级 %1-%2：卡片齐备，开始点击").arg(level - 1).arg(level), LogType::Success);
-            
-            // 3. 点击选中的卡片
-            // 首先点击主卡
-            leftClickDPI(hwndGame, mainCard.centerPosition.x(), mainCard.centerPosition.y());
-            addLog(QString("点击主卡：(%1, %2)").arg(mainCard.centerPosition.x()).arg(mainCard.centerPosition.y()), LogType::Info);
-            
-            // 然后点击副卡
-            for (const auto& subcard : selectedSubcards) {
-                leftClickDPI(hwndGame, subcard.centerPosition.x(), subcard.centerPosition.y());
-                addLog(QString("点击副卡：(%1, %2)").arg(subcard.centerPosition.x()).arg(subcard.centerPosition.y()), LogType::Info);
-            }
-            
-            // 4. 检查是否需要四叶草
-            if (levelConfig.clover != "无" && levelConfig.clover != "") {
-                addLog(QString("检查四叶草：%1").arg(levelConfig.clover), LogType::Info);
-                
-                QPair<bool, bool> cloverResult = recognizeClover(levelConfig.clover, 
-                                                                levelConfig.cloverBound, 
-                                                                levelConfig.cloverUnbound);
-                if (cloverResult.first) {
-                    addLog(QString("成功添加四叶草：%1 (%2)").arg(levelConfig.clover)
-                          .arg(cloverResult.second ? "绑定" : "未绑定"), LogType::Success);
-                } else {
-                    addLog(QString("未找到四叶草：%1").arg(levelConfig.clover), LogType::Warning);
-                    stopEnhancement(); // 未找到四叶草，停止强化
-                    QMessageBox::warning(this, "错误", "未找到四叶草，强化已停止！");
-                    return;
-                }
-            }
-            
-            addLog(QString("等级 %1-%2 的强化材料准备完成").arg(level - 1).arg(level), LogType::Success);
-
-            // 等待强化按钮就绪
-            for (int i = 0; i < 100; i++)
-            {
-                QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
-
-                if (checkSynHousePosState(screenshot, ENHANCE_BUTTON_POS, "enhanceButtonReady"))
-                {
-                    addLog("强化按钮已就绪，点击强化按钮", LogType::Success);
-                    leftClickDPI(hwndGame, 285, 435); // 点击强化按钮
-                    break;
-                }
-                else if(i == 99)
-                {
-                    stopEnhancement();
-                    QMessageBox::warning(this, "错误", "强化按钮异常，强化已停止！");
-                    return;
-                }
-                else if(isEnhancing == false)
-                {
-                    return;
-                }
-                sleepByQElapsedTimer(30);
-            }
-
-            // 等待副卡位置为空
-            for (int i = 0; i < 100; i++)
-            {
-                QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
-                if (checkSynHousePosState(screenshot, SUB_CARD_POS, "subCardEmpty"))
-                {
-                    addLog("副卡位置为空，强化完成，等待强化结果", LogType::Success);
-                    break;
-                }
-                else if(i == 99)
-                {
-                    stopEnhancement();
-                    QMessageBox::warning(this, "错误", "副卡位置异常，强化已停止！");
-                    return;
-                }
-                else if(isEnhancing == false)
-                {
-                    return;
-                }
-                sleepByQElapsedTimer(30);
-            }
-
-            // 强化完成后清空主卡位置
-            for (int i = 0; i < 100; i++)
-            {
-                leftClickDPI(hwndGame, 288, 350); // 点击主卡位置卸下主卡
-                QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
-                if (checkSynHousePosState(screenshot, MAIN_CARD_POS, "mainCardEmpty"))
-                {
-                    addLog(QString("主卡位置为空，卸卡完成，单次强化完成").arg(level - 1).arg(level), LogType::Success);
-                    return;
-                }
-                else if(i == 99)
-                {
-                    stopEnhancement();
-                    QMessageBox::warning(this, "错误", "主卡位置异常，强化已停止！");
-                    return;
-                }
-                else if(isEnhancing == false)
-                {
-                    return;
-                }
-                sleepByQElapsedTimer(30);
-            }
-        }
+        addLog("强化流程结束", LogType::Info);
     }
-    
-    stopEnhancement();
-    QMessageBox::warning(this, "强化停止", "没有找到可以强化的卡片，强化已停止！");
 }
 
 void StarryCard::stopEnhancement()
@@ -1337,6 +1122,16 @@ void StarryCard::updateHandleDisplay(HWND hwnd) {
 
 void StarryCard::addLog(const QString& message, LogType type)
 {
+    // 确保在主线程中执行UI操作
+    if (QThread::currentThread() != this->thread()) {
+        qWarning() << "addLog called from wrong thread!";
+        return;
+    }
+    
+    if (!logTextEdit) {
+        return;
+    }
+    
     // 获取当前时间
     QString timestamp = QTime::currentTime().toString("hh:mm:ss");
     
@@ -1366,28 +1161,26 @@ void StarryCard::addLog(const QString& message, LogType type)
     // 添加新日志
     logTextEdit->append(formattedMessage);
 
-    // 检查日志数量是否超过限制（256条）
-    QTextDocument* doc = logTextEdit->document();
-    QTextBlock block = doc->begin();
-    int lineCount = 0;
+    // 使用更简单的行数限制策略，避免频繁的文档操作
+    static int logCount = 0;
+    logCount++;
     
-    // 计算当前日志行数
-    while (block.isValid()) {
-        lineCount++;
-        block = block.next();
+    // 每50条检查一次，减少频繁操作
+    if (logCount % 50 == 0) {
+        QTextDocument* doc = logTextEdit->document();
+        if (doc && doc->blockCount() > 300) {
+            // 使用setMaximumBlockCount来自动限制行数
+            logTextEdit->document()->setMaximumBlockCount(256);
+        }
     }
     
-    // 如果超过256行，删除最早的日志
-    if (lineCount > 256) {
-        QTextCursor cursor(doc);
-        cursor.movePosition(QTextCursor::Start);
-        cursor.movePosition(QTextCursor::NextBlock, QTextCursor::KeepAnchor);
-        cursor.removeSelectedText();
-        cursor.deleteChar(); // 删除额外的换行符
+    // 滚动到最新日志 - 减少滚动操作的频率
+    if (logCount % 5 == 0) {
+        QScrollBar* scrollBar = logTextEdit->verticalScrollBar();
+        if (scrollBar) {
+            scrollBar->setValue(scrollBar->maximum());
+        }
     }
-    
-    // 滚动到最新日志
-    logTextEdit->verticalScrollBar()->setValue(logTextEdit->verticalScrollBar()->maximum());
 }
 
 void StarryCard::updateCurrentBgLabel()
@@ -2316,6 +2109,25 @@ void StarryCard::onConfigSaveTimeout()
 {
     // 定时器超时，真正执行保存操作
     saveEnhancementConfig();
+}
+
+void StarryCard::scheduleSpiceConfigSave()
+{
+    // 重启定时器，如果用户快速更改，会取消之前的保存操作
+    if (spiceSaveTimer && spiceSaveTimer->isActive()) {
+        spiceSaveTimer->stop();
+    }
+    if (spiceSaveTimer) {
+        spiceSaveTimer->start();
+    }
+}
+
+void StarryCard::onSpiceSaveTimeout()
+{
+    // 定时器超时，真正执行保存操作
+    saveSpiceConfig();
+    // 只在延迟保存完成时显示一次日志
+    addLog("香料配置已保存", LogType::Info);
 }
 
 void StarryCard::updateEnhancementTableUI()
@@ -5193,7 +5005,7 @@ QWidget* StarryCard::createSpiceConfigPage()
     layout->addWidget(titleLabel);
     
     // 创建表格
-    spiceTable = new QTableWidget(9, 4);
+    spiceTable = new QTableWidget(9, 5);
     spiceTable->setStyleSheet(R"(
         QTableWidget {
             gridline-color: rgba(102, 204, 255, 120);
@@ -5295,7 +5107,7 @@ QWidget* StarryCard::createSpiceConfigPage()
     )");
     
     // 设置表头
-    QStringList headers = {"香料种类", "是否绑定", "数量限制", "限制数量"};
+    QStringList headers = {"香料种类", "是否使用", "是否绑定", "数量限制", "限制数量"};
     spiceTable->setHorizontalHeaderLabels(headers);
     
     // 设置表格属性
@@ -5308,14 +5120,15 @@ QWidget* StarryCard::createSpiceConfigPage()
     
     // 设置表格的大小策略和固定宽度
     spiceTable->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    spiceTable->setFixedWidth(540);  // 增加总宽度以适应更大的图标
+    spiceTable->setFixedWidth(540);  // 增加总宽度以容纳新列
     
     // 设置具体的列宽
     spiceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    spiceTable->setColumnWidth(0, 110);   // 香料种类（增加宽度以适应大图标）
-    spiceTable->setColumnWidth(1, 75);    // 是否绑定
-    spiceTable->setColumnWidth(2, 75);   // 数量限制
-    spiceTable->setColumnWidth(3, 100);   // 限制数量
+    spiceTable->setColumnWidth(0, 110);   // 香料种类
+    spiceTable->setColumnWidth(1, 70);    // 是否使用
+    spiceTable->setColumnWidth(2, 70);    // 是否绑定
+    spiceTable->setColumnWidth(3, 70);    // 数量限制
+    spiceTable->setColumnWidth(4, 70);   // 限制数量
     
     // 设置行高以适应大图标
     spiceTable->verticalHeader()->setDefaultSectionSize(40);
@@ -5358,6 +5171,21 @@ QWidget* StarryCard::createSpiceConfigPage()
         
         spiceTable->setCellWidget(row, 0, spiceWidget);
         
+        // 是否使用复选框
+        QCheckBox* useCheckBox = new QCheckBox();
+        useCheckBox->setProperty("row", row);
+        useCheckBox->setChecked(true);  // 默认勾选
+        connect(useCheckBox, &QCheckBox::toggled, this, &StarryCard::onSpiceConfigChanged);
+        
+        QWidget* useWidget = new QWidget();
+        QHBoxLayout* useLayout = new QHBoxLayout(useWidget);
+        useLayout->setContentsMargins(0, 0, 0, 0);
+        useLayout->addStretch();
+        useLayout->addWidget(useCheckBox);
+        useLayout->addStretch();
+        
+        spiceTable->setCellWidget(row, 1, useWidget);
+        
         // 是否绑定复选框
         QCheckBox* bindCheckBox = new QCheckBox();
         bindCheckBox->setProperty("row", row);
@@ -5370,7 +5198,7 @@ QWidget* StarryCard::createSpiceConfigPage()
         bindLayout->addWidget(bindCheckBox);
         bindLayout->addStretch();
         
-        spiceTable->setCellWidget(row, 1, bindWidget);
+        spiceTable->setCellWidget(row, 2, bindWidget);
         
         // 数量限制下拉框
         QComboBox* limitCombo = new QComboBox();
@@ -5380,7 +5208,7 @@ QWidget* StarryCard::createSpiceConfigPage()
         connect(limitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, &StarryCard::onSpiceConfigChanged);
         
-        spiceTable->setCellWidget(row, 2, limitCombo);
+        spiceTable->setCellWidget(row, 3, limitCombo);
         
         // 限制数量输入框
         QSpinBox* amountSpinBox = new QSpinBox();
@@ -5408,7 +5236,7 @@ QWidget* StarryCard::createSpiceConfigPage()
         connect(amountSpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
                 this, &StarryCard::onSpiceConfigChanged);
         
-        spiceTable->setCellWidget(row, 3, amountSpinBox);
+        spiceTable->setCellWidget(row, 4, amountSpinBox);
     }
     
     layout->addWidget(spiceTable);
@@ -5427,8 +5255,8 @@ void StarryCard::onSpiceConfigChanged()
     int row = sender->property("row").toInt();
     
     // 获取数量限制下拉框和限制数量输入框
-    QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 2));
-    QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 3));
+    QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 3));
+    QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 4));
     
     if (limitCombo && amountSpinBox) {
         // 根据数量限制选择启用/禁用限制数量输入框
@@ -5442,10 +5270,8 @@ void StarryCard::onSpiceConfigChanged()
         }
     }
     
-    // 保存配置
-    saveSpiceConfig();
-    
-    addLog("香料配置已更新", LogType::Info);
+    // 延迟保存配置，避免频繁I/O操作
+    scheduleSpiceConfigSave();
 }
 
 void StarryCard::loadSpiceConfig()
@@ -5480,34 +5306,51 @@ void StarryCard::loadSpiceConfig()
         return;
     }
     
-    // 加载配置到表格
+    // 加载配置到表格时阻止信号发射，避免触发保存
     for (int row = 0; row < 9 && row < spicesArray.size(); ++row) {
         QJsonObject spiceObj = spicesArray[row].toObject();
         
+        // 设置是否使用状态
+        QWidget* useWidget = spiceTable->cellWidget(row, 1);
+        if (useWidget) {
+            QCheckBox* useCheckBox = useWidget->findChild<QCheckBox*>();
+            if (useCheckBox) {
+                useCheckBox->blockSignals(true);
+                useCheckBox->setChecked(spiceObj["used"].toBool(true));  // 默认为true
+                useCheckBox->blockSignals(false);
+            }
+        }
+        
         // 设置绑定状态
-        QWidget* bindWidget = spiceTable->cellWidget(row, 1);
+        QWidget* bindWidget = spiceTable->cellWidget(row, 2);
         if (bindWidget) {
             QCheckBox* bindCheckBox = bindWidget->findChild<QCheckBox*>();
             if (bindCheckBox) {
+                bindCheckBox->blockSignals(true);
                 bindCheckBox->setChecked(spiceObj["bound"].toBool());
+                bindCheckBox->blockSignals(false);
             }
         }
         
         // 设置数量限制类型
-        QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 2));
+        QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 3));
         if (limitCombo) {
             QString limitType = spiceObj["limitType"].toString();
             int index = limitCombo->findText(limitType);
             if (index >= 0) {
+                limitCombo->blockSignals(true);
                 limitCombo->setCurrentIndex(index);
+                limitCombo->blockSignals(false);
             }
         }
         
         // 设置限制数量
-        QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 3));
+        QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 4));
         if (amountSpinBox) {
             int amount = spiceObj["limitAmount"].toInt();
+            amountSpinBox->blockSignals(true);
             amountSpinBox->setValue(amount);
+            amountSpinBox->blockSignals(false);
             
             // 根据限制类型启用/禁用输入框
             bool isLimited = spiceObj["limitType"].toString() == "限制";
@@ -5534,8 +5377,19 @@ void StarryCard::saveSpiceConfig()
         QJsonObject spiceObj;
         spiceObj["name"] = spiceTypes[row];
         
+        // 获取是否使用状态
+        QWidget* useWidget = spiceTable->cellWidget(row, 1);
+        bool used = true;  // 默认为true
+        if (useWidget) {
+            QCheckBox* useCheckBox = useWidget->findChild<QCheckBox*>();
+            if (useCheckBox) {
+                used = useCheckBox->isChecked();
+            }
+        }
+        spiceObj["used"] = used;
+        
         // 获取绑定状态
-        QWidget* bindWidget = spiceTable->cellWidget(row, 1);
+        QWidget* bindWidget = spiceTable->cellWidget(row, 2);
         bool bound = false;
         if (bindWidget) {
             QCheckBox* bindCheckBox = bindWidget->findChild<QCheckBox*>();
@@ -5546,7 +5400,7 @@ void StarryCard::saveSpiceConfig()
         spiceObj["bound"] = bound;
         
         // 获取数量限制类型
-        QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 2));
+        QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 3));
         QString limitType = "无限制";
         if (limitCombo) {
             limitType = limitCombo->currentText();
@@ -5554,7 +5408,7 @@ void StarryCard::saveSpiceConfig()
         spiceObj["limitType"] = limitType;
         
         // 获取限制数量
-        QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 3));
+        QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 4));
         int amount = 0;
         if (amountSpinBox) {
             amount = amountSpinBox->value();
@@ -5577,5 +5431,286 @@ void StarryCard::saveSpiceConfig()
     file.write(doc.toJson());
     file.close();
     
-    qDebug() << "香料配置已保存";
+    // qDebug() << "香料配置已保存";
 }
+
+// ========== EnhancementWorker 类实现 ==========
+
+EnhancementWorker::EnhancementWorker(StarryCard* parent)
+    : QObject(nullptr), m_parent(parent)
+{
+}
+
+void EnhancementWorker::startEnhancement()
+{
+    if (!m_parent->hwndGame || !IsWindow(m_parent->hwndGame)) {
+        emit showWarningMessage("错误", "请先绑定有效的游戏窗口！");
+        return;
+    }
+
+    if (!m_parent->isEnhancing) {
+        // 卡片类型已经在主线程中预加载到requiredCardTypes
+        if (m_parent->requiredCardTypes.isEmpty()) {
+            emit showWarningMessage("警告", "配置文件中未找到有效的卡片类型配置！\n请先在卡片设置中配置主卡和副卡类型。");
+            emit logMessage("强化流程启动失败：未找到有效的卡片类型配置", LogType::Error);
+            return;
+        }
+
+        // 最高强化等级和最低强化等级已经在主线程中设置到成员变量
+        // 全局强化配置已经在主线程中预加载
+        
+        // 创建本地副本避免跨线程访问QStringList
+        QStringList cardTypesCopy = m_parent->requiredCardTypes;
+        emit logMessage(QString("强化流程准备就绪，将识别以下卡片类型: %1").arg(cardTypesCopy.join(", ")), LogType::Info);
+        
+        m_parent->isEnhancing = true;
+        emit logMessage("开始强化流程", LogType::Success);
+
+        while(!m_parent->goToPage(StarryCard::PageType::CardEnhance) && m_parent->isEnhancing)
+        {
+            emit logMessage("未找到卡片强化页面，尝试刷新游戏窗口...", LogType::Warning);
+            // 刷新游戏窗口
+            if(!m_parent->refreshGameWindow())
+            {
+                m_parent->isEnhancing = false;
+                emit showWarningMessage("错误", "刷新游戏窗口失败，强化已停止！");
+                emit logMessage("刷新游戏窗口失败，强化已停止！", LogType::Error);
+                emit enhancementFinished();
+                return;
+            }
+            // 关闭健康提示
+            m_parent->closeHealthTip(1);
+            threadSafeSleep(1000);
+        }
+        
+        performEnhancement();
+    }
+}
+
+void EnhancementWorker::performEnhancement()
+{
+    if (!m_parent->hwndGame || !IsWindow(m_parent->hwndGame)) {
+        m_parent->isEnhancing = false;
+        emit showWarningMessage("错误", "目标窗口已失效，强化已停止！");
+        emit logMessage("目标窗口已失效，强化已停止！", LogType::Error);
+        emit enhancementFinished();
+        return;
+    }
+
+    while (m_parent->isEnhancing)
+    {
+        QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+        std::vector<CardInfo> cardVector;
+        // 创建本地副本避免跨线程访问QStringList
+        QStringList cardTypesCopy = m_parent->requiredCardTypes;
+        cardVector = m_parent->cardRecognizer->recognizeCards(screenshot, cardTypesCopy);
+        if (cardVector.empty())
+        {
+            emit logMessage("未找到目标卡片", LogType::Error);
+            break;
+        }
+
+        // 调用强化处理方法
+        performEnhancementOnce(cardVector);
+    }
+
+    m_parent->isEnhancing = false;
+    emit enhancementFinished();
+}
+
+void EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
+{
+    emit logMessage("开始分析卡片强化配置", LogType::Info);
+    
+    // 从最高等级开始，遍历每个强化等级
+    for (int level = m_parent->maxEnhancementLevel; level >= m_parent->minEnhancementLevel; --level) {
+        // 检查是否有对应的配置
+        if (!g_enhancementConfig.hasLevelConfig(level - 1, level)) {
+            emit logMessage(QString("跳过等级 %1-%2：无配置").arg(level - 1).arg(level), LogType::Info);
+            continue;
+        }
+        
+        auto levelConfig = g_enhancementConfig.getLevelConfig(level - 1, level);
+        emit logMessage(QString("检查等级 %1-%2 的配置").arg(level - 1).arg(level), LogType::Info);
+        
+        // 检查是否有足够的卡片满足要求
+        std::vector<CardInfo> selectedCards;
+        bool hasEnoughCards = true;
+        
+        // 1. 检查主卡（目标等级-1的星级）
+        CardInfo mainCard;
+        bool foundMainCard = false;
+        
+        for (const auto& card : cardVector) {
+            if (card.name == levelConfig.mainCardType && 
+                card.level == level - 1) {
+                // 检查绑定状态匹配
+                if ((levelConfig.mainCardBound && card.isBound) || 
+                    (levelConfig.mainCardUnbound && !card.isBound)) {
+                    mainCard = card;
+                    foundMainCard = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!foundMainCard) {
+            emit logMessage(QString("等级 %1-%2：缺少主卡 %3 (%4星)").arg(level - 1).arg(level)
+                  .arg(levelConfig.mainCardType).arg(level - 1), LogType::Warning);
+            hasEnoughCards = false;
+            continue;
+        } else {
+            selectedCards.push_back(mainCard);
+            emit logMessage(QString("找到主卡：%1 (%2星, %3)").arg(mainCard.name)
+                  .arg(mainCard.level).arg(mainCard.isBound ? "绑定" : "未绑定"), LogType::Success);
+        }
+        
+        // 2. 检查副卡
+        std::vector<int> requiredSubcards;
+        if (levelConfig.subcard1 >= 0) requiredSubcards.push_back(levelConfig.subcard1);
+        if (levelConfig.subcard2 >= 0) requiredSubcards.push_back(levelConfig.subcard2);
+        if (levelConfig.subcard3 >= 0) requiredSubcards.push_back(levelConfig.subcard3);
+        
+        std::vector<CardInfo> availableSubcards;
+        for (const auto& card : cardVector) {
+            if (card.name == levelConfig.subCardType && 
+                card.centerPosition != mainCard.centerPosition) { // 不能是主卡
+                // 检查绑定状态匹配
+                if ((levelConfig.subCardBound && card.isBound) || 
+                    (levelConfig.subCardUnbound && !card.isBound)) {
+                    availableSubcards.push_back(card);
+                }
+            }
+        }
+        
+        // 按星级分组副卡
+        std::map<int, std::vector<CardInfo>> subcardsByLevel;
+        for (const auto& card : availableSubcards) {
+            subcardsByLevel[card.level].push_back(card);
+        }
+        
+        // 检查是否有足够的副卡
+        std::vector<CardInfo> selectedSubcards;
+        for (int requiredLevel : requiredSubcards) {
+            if (subcardsByLevel[requiredLevel].empty()) {
+                emit logMessage(QString("等级 %1-%2：缺少副卡 %3 (%4星)").arg(level - 1).arg(level)
+                      .arg(levelConfig.subCardType).arg(requiredLevel), LogType::Warning);
+                hasEnoughCards = false;
+                if(level - 1 > requiredLevel)
+                {
+                    // 如果缺少的副卡不是主卡同等级的卡，尝试生产缺少的副卡
+                    emit logMessage(QString("%1 星主卡充足，尝试生产:%2 星副卡").arg(level - 1).arg(requiredLevel), LogType::Info);
+                    level = requiredLevel + 1;
+                }
+                break;
+            } else {
+                selectedSubcards.push_back(subcardsByLevel[requiredLevel][0]);
+                subcardsByLevel[requiredLevel].erase(subcardsByLevel[requiredLevel].begin());
+                emit logMessage(QString("找到副卡：%1 (%2星, %3)").arg(selectedSubcards.back().name)
+                      .arg(selectedSubcards.back().level).arg(selectedSubcards.back().isBound ? "绑定" : "未绑定"), LogType::Success);
+            }
+        }
+        
+        if (hasEnoughCards) {
+            emit logMessage(QString("等级 %1-%2：卡片齐备，开始点击").arg(level - 1).arg(level), LogType::Success);
+            
+            // 3. 点击选中的卡片
+            // 首先点击主卡
+            m_parent->leftClickDPI(m_parent->hwndGame, mainCard.centerPosition.x(), mainCard.centerPosition.y());
+            emit logMessage(QString("点击主卡：(%1, %2)").arg(mainCard.centerPosition.x()).arg(mainCard.centerPosition.y()), LogType::Info);
+            
+            // 然后点击副卡
+            for (const auto& subcard : selectedSubcards) {
+                m_parent->leftClickDPI(m_parent->hwndGame, subcard.centerPosition.x(), subcard.centerPosition.y());
+                emit logMessage(QString("点击副卡：(%1, %2)").arg(subcard.centerPosition.x()).arg(subcard.centerPosition.y()), LogType::Info);
+            }
+            
+            // 4. 检查是否需要四叶草
+            if (levelConfig.clover != "无" && levelConfig.clover != "") {
+                emit logMessage(QString("检查四叶草：%1").arg(levelConfig.clover), LogType::Info);
+                
+                QPair<bool, bool> cloverResult = m_parent->recognizeClover(levelConfig.clover, 
+                                                                levelConfig.cloverBound, 
+                                                                levelConfig.cloverUnbound);
+                if (cloverResult.first) {
+                    emit logMessage(QString("成功添加四叶草：%1 (%2)").arg(levelConfig.clover)
+                          .arg(cloverResult.second ? "绑定" : "未绑定"), LogType::Success);
+                } else {
+                    emit logMessage(QString("未找到四叶草：%1").arg(levelConfig.clover), LogType::Warning);
+                    m_parent->isEnhancing = false;
+                    emit showWarningMessage("错误", "未找到四叶草，强化已停止！");
+                    return;
+                }
+            }
+            
+            emit logMessage(QString("等级 %1-%2 的强化材料准备完成").arg(level - 1).arg(level), LogType::Success);
+
+            // 等待强化按钮就绪
+            for (int i = 0; i < 100 && m_parent->isEnhancing; i++)
+            {
+                QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+
+                if (m_parent->checkSynHousePosState(screenshot, m_parent->ENHANCE_BUTTON_POS, "enhanceButtonReady"))
+                {
+                    emit logMessage("强化按钮已就绪，点击强化按钮", LogType::Success);
+                    m_parent->leftClickDPI(m_parent->hwndGame, 285, 435); // 点击强化按钮
+                    break;
+                }
+                else if(i == 99)
+                {
+                    m_parent->isEnhancing = false;
+                    emit showWarningMessage("错误", "强化按钮异常，强化已停止！");
+                    return;
+                }
+                threadSafeSleep(30);
+            }
+
+            // 等待副卡位置为空
+            for (int i = 0; i < 100 && m_parent->isEnhancing; i++)
+            {
+                QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+                if (m_parent->checkSynHousePosState(screenshot, m_parent->SUB_CARD_POS, "subCardEmpty"))
+                {
+                    emit logMessage("副卡位置为空，强化完成，等待强化结果", LogType::Success);
+                    break;
+                }
+                else if(i == 99)
+                {
+                    m_parent->isEnhancing = false;
+                    emit showWarningMessage("错误", "副卡位置异常，强化已停止！");
+                    return;
+                }
+                threadSafeSleep(30);
+            }
+
+            // 强化完成后清空主卡位置
+            for (int i = 0; i < 100 && m_parent->isEnhancing; i++)
+            {
+                m_parent->leftClickDPI(m_parent->hwndGame, 288, 350); // 点击主卡位置卸下主卡
+                QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+                if (m_parent->checkSynHousePosState(screenshot, m_parent->MAIN_CARD_POS, "mainCardEmpty"))
+                {
+                    emit logMessage(QString("主卡位置为空，卸卡完成，%1-%2星强化完成").arg(level - 1).arg(level), LogType::Success);
+                    return;
+                }
+                else if(i == 99)
+                {
+                    m_parent->isEnhancing = false;
+                    emit showWarningMessage("错误", "主卡位置异常，强化已停止！");
+                    return;
+                }
+                threadSafeSleep(30);
+            }
+        }
+    }
+    
+    m_parent->isEnhancing = false;
+    emit showWarningMessage("强化停止", "没有找到可以强化的卡片，强化已停止！");
+}
+
+void EnhancementWorker::threadSafeSleep(int ms)
+{
+    QThread::msleep(ms);
+}
+
+
