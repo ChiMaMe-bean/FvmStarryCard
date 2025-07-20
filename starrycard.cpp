@@ -86,25 +86,25 @@ StarryCard::StarryCard(QWidget *parent)
     qDebug() << "Application directory:" << QCoreApplication::applicationDirPath();
     qDebug() << "Current working directory:" << QDir::currentPath();
     
-    QStringList requiredDirs = {
-        "items",
-        "items/position",
-        "items/card",
-        "screenshots"
-    };
+    // QStringList requiredDirs = {
+    //     "items",
+    //     "items/position",
+    //     "items/card",
+    //     "screenshots"
+    // };
 
-    for (const QString& dir : requiredDirs) {
-        QDir checkDir(dir);
-        if (!checkDir.exists()) {
-            if (!checkDir.mkpath(".")) {
-                qDebug() << "Failed to create directory:" << dir;
-            } else {
-                qDebug() << "Created directory:" << dir;
-            }
-        } else {
-            // qDebug() << "Directory exists:" << dir;
-        }
-    }
+    // for (const QString& dir : requiredDirs) {
+    //     QDir checkDir(dir);
+    //     if (!checkDir.exists()) {
+    //         if (!checkDir.mkpath(".")) {
+    //             qDebug() << "Failed to create directory:" << dir;
+    //         } else {
+    //             qDebug() << "Created directory:" << dir;
+    //         }
+    //     } else {
+    //         // qDebug() << "Directory exists:" << dir;
+    //     }
+    // }
 
     // 读取存储的自定义背景路径
     loadCustomBgPath();
@@ -1264,21 +1264,21 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
         rect.bottom = 596;
     }
     else if (!GetWindowRect(hwnd, &rect)) {
-        addLog(QString("获取窗口位置失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("获取窗口位置失败: %1").arg(windowName);
         return QImage();
     }
     
     // 获取窗口DC
     HDC hdcWindow = GetDC(hwnd);
     if (!hdcWindow) {
-        addLog(QString("获取窗口DC失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("获取窗口DC失败: %1").arg(windowName);
         return QImage();
     }
 
     // 创建兼容DC和位图
     HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
     if (!hdcMemDC) {
-        addLog(QString("创建兼容DC失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("创建兼容DC失败: %1").arg(windowName);
         ReleaseDC(hwnd, hdcWindow);
         return QImage();
     }
@@ -1288,7 +1288,7 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
     
     HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
     if (!hBitmap) {
-        addLog(QString("创建兼容位图失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("创建兼容位图失败: %1").arg(windowName);
         DeleteDC(hdcMemDC);
         ReleaseDC(hwnd, hdcWindow);
         return QImage();
@@ -1298,7 +1298,7 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
 
     // 复制窗口内容到位图
     if (!BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY)) {
-        addLog(QString("复制窗口内容失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("复制窗口内容失败: %1").arg(windowName);
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
@@ -1321,7 +1321,7 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
 
     // 获取位图数据
     if (!GetDIBits(hdcMemDC, hBitmap, 0, height, image.bits(), &bmi, DIB_RGB_COLORS)) {
-        addLog(QString("获取位图数据失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("获取位图数据失败: %1").arg(windowName);
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
@@ -1568,33 +1568,6 @@ void StarryCard::onCaptureAndRecognize()
             addLog("成功识别到不绑定的天然香料", LogType::Success);
         } else {
             addLog("未找到不绑定的天然香料", LogType::Warning);
-        }
-        
-        // 测试2: 找到绑定的魔幻香料
-        addLog("测试2: 找到绑定的魔幻香料", LogType::Info);
-        QPair<bool, bool> spiceResult2 = recognizeSpice("魔幻香料", true, false);
-        if (spiceResult2.first) {
-            addLog("成功识别到绑定的魔幻香料", LogType::Success);
-        } else {
-            addLog("未找到绑定的魔幻香料", LogType::Warning);
-        }
-        
-        // 测试3: 找到不绑定的极品香料
-        addLog("测试3: 找到不绑定的极品香料", LogType::Info);
-        QPair<bool, bool> spiceResult3 = recognizeSpice("极品香料", false, true);
-        if (spiceResult3.first) {
-            addLog("成功识别到不绑定的极品香料", LogType::Success);
-        } else {
-            addLog("未找到不绑定的极品香料", LogType::Warning);
-        }
-        
-        // 测试4: 找到绑定的圣灵香料
-        addLog("测试4: 找到绑定的圣灵香料", LogType::Info);
-        QPair<bool, bool> spiceResult4 = recognizeSpice("圣灵香料", true, false);
-        if (spiceResult4.first) {
-            addLog("成功识别到绑定的圣灵香料", LogType::Success);
-        } else {
-            addLog("未找到绑定的圣灵香料", LogType::Warning);
         }
         
         addLog("香料识别测试完成", LogType::Info);
@@ -2590,25 +2563,44 @@ QStringList StarryCard::getCardTypes() const
         cardTypes = cardRecognizer->getRegisteredCards();
     }
     
-    // 如果没有加载到卡片类型，从资源文件直接获取
+    // 如果没有加载到卡片类型
     if (cardTypes.isEmpty()) {
-        QDir resourceDir(":/items/card");
-        QStringList nameFilters;
-        nameFilters << "*.png" << "*.jpg" << "*.jpeg" << "*.bmp";
-        QStringList cardFiles = resourceDir.entryList(nameFilters, QDir::Files);
-        
-        for (const auto& cardFile : std::as_const(cardFiles)) {
-            QString cardName = QFileInfo(cardFile).baseName();
-            cardTypes.append(cardName);
-        }
-        
-        // 如果资源文件也没有
-        if (cardTypes.isEmpty()) {
-            qDebug() << "没有找到任何卡片类型";
+        qDebug() << "没有找到任何卡片类型";
+    }
+    
+    // 按卡片前缀排序：好卡 -> 中卡 -> 差卡 -> 其他
+    QStringList sortedCardTypes;
+    QStringList goodCards;   // "好卡："前缀
+    QStringList mediumCards; // "中卡："前缀  
+    QStringList badCards;    // "差卡："前缀
+    QStringList otherCards;  // 其他没有这些前缀的卡片
+    
+    // 分类卡片
+    for (const QString &card : cardTypes) {
+        if (card.startsWith("好卡：")) {
+            goodCards.append(card);
+        } else if (card.startsWith("中卡：")) {
+            mediumCards.append(card);
+        } else if (card.startsWith("差卡：")) {
+            badCards.append(card);
+        } else {
+            otherCards.append(card);
         }
     }
     
-    return cardTypes;
+    // 各组内部按字母顺序排序
+    goodCards.sort();
+    mediumCards.sort();
+    badCards.sort();
+    otherCards.sort();
+    
+    // 按优先级顺序合并：好卡 -> 中卡 -> 差卡 -> 其他
+    sortedCardTypes.append(goodCards);
+    sortedCardTypes.append(mediumCards);
+    sortedCardTypes.append(badCards);
+    sortedCardTypes.append(otherCards);
+    
+    return sortedCardTypes;
 }
 
 QStringList StarryCard::getRequiredCardTypesFromConfig()
@@ -4599,7 +4591,7 @@ HWND StarryCard::getActiveServerWindow(HWND hWndHall)
 BOOL StarryCard::refreshGameWindow()
 {
     HWND hwndOrigin = getActiveGameWindow(hwndHall);
-    addLog(QString("刷新前游戏窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndOrigin), 10)), LogType::Success);
+    qDebug() << QString("刷新前游戏窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndOrigin), 10));
 
     // 点击刷新按钮
     clickRefresh();
@@ -4610,26 +4602,26 @@ BOOL StarryCard::refreshGameWindow()
         counter++;
         if(counter > 50) // 5秒
         {
-            addLog("刷新失败，点击刷新按钮无效", LogType::Error);
+            qDebug() << "刷新失败，点击刷新按钮无效";
             return FALSE;
         }
 
         sleepByQElapsedTimer(200);
     }
-    addLog("刷新成功", LogType::Success);
+    qDebug() << "刷新成功";
 
     sleepByQElapsedTimer(1000);
 
     hwndServer = getActiveServerWindow(hwndHall);
     if (!hwndServer) {
-        addLog("未找到选服窗口，可能是微端或窗口已关闭", LogType::Warning);
+        qDebug() << "未找到选服窗口，可能是微端或窗口已关闭";
         // 继续执行后续识别，不需要矩形信息
     } else {
-        addLog(QString("找到选服窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndServer), 10)), LogType::Success);
+        qDebug() << QString("找到选服窗口：%1").arg(QString::number(reinterpret_cast<quintptr>(hwndServer), 10));
         
         // 验证选服窗口是否有效
         if (!IsWindow(hwndServer)) {
-            addLog("选服窗口句柄无效", LogType::Error);
+            qDebug() << "选服窗口句柄无效";
             hwndServer = nullptr;
         }
     }
@@ -4640,7 +4632,7 @@ BOOL StarryCard::refreshGameWindow()
     
     // 安全地获取大厅窗口矩形
     if (!GetWindowRect(hwndHall, &rectHall)) {
-        addLog("获取大厅窗口矩形失败", LogType::Error);
+        qDebug() << "获取大厅窗口矩形失败";
     }
     
     // 只有当选服窗口有效时才获取其矩形
@@ -4648,9 +4640,9 @@ BOOL StarryCard::refreshGameWindow()
         if (GetWindowRect(hwndServer, &rectServer)) {
             serverWidth = rectServer.right - rectServer.left;
             serverHeight = rectServer.bottom - rectServer.top;
-            addLog(QString("选服窗口尺寸：%1x%2").arg(serverWidth).arg(serverHeight), LogType::Info);
+            qDebug() << QString("选服窗口尺寸：%1x%2").arg(serverWidth).arg(serverHeight);
         } else {
-            addLog("获取选服窗口矩形失败", LogType::Warning);
+            qDebug() << "获取选服窗口矩形失败";
         }
     }
 
@@ -4663,9 +4655,9 @@ BOOL StarryCard::refreshGameWindow()
     QDir dir(screenshotsDir);
     if (!dir.exists()) {
         if (!dir.mkpath(screenshotsDir)) {
-            addLog("创建screenshots文件夹失败", LogType::Error);
+            qDebug() << "创建screenshots文件夹失败";
         } else {
-            addLog("创建screenshots文件夹成功", LogType::Info);
+            qDebug() << "创建screenshots文件夹成功";
         }
     }
     
@@ -4675,9 +4667,9 @@ BOOL StarryCard::refreshGameWindow()
         if (!hallImage.isNull()) {
             QString hallFilename = QString("%1/Ahall_window.png").arg(screenshotsDir);
             if (hallImage.save(hallFilename)) {
-                addLog("大厅窗口截图保存成功", LogType::Success);
+                qDebug() << "大厅窗口截图保存成功";
             } else {
-                addLog("大厅窗口截图保存失败", LogType::Error);
+                qDebug() << "大厅窗口截图保存失败";
             }
         }
     }
@@ -4688,13 +4680,13 @@ BOOL StarryCard::refreshGameWindow()
         if (!serverImage.isNull()) {
             QString serverFilename = QString("%1/Aserver_window.png").arg(screenshotsDir);
             if (serverImage.save(serverFilename)) {
-                addLog("选服窗口截图保存成功", LogType::Success);
+                qDebug() << "选服窗口截图保存成功";
             } else {
-                addLog("选服窗口截图保存失败", LogType::Error);
+                qDebug() << "选服窗口截图保存失败";
             }
         }
     } else {
-        addLog("选服窗口无效，跳过截图", LogType::Warning);
+        qDebug() << "选服窗口无效，跳过截图";
     }
 
     int x = 0;
@@ -4706,30 +4698,30 @@ BOOL StarryCard::refreshGameWindow()
 
     if (platformType == -1)
     {
-        addLog("无法识别服务器窗口", LogType::Error);
+        qDebug() << "无法识别服务器窗口";
         return FALSE;
     }
     else if (platformType == 0)
     {
-        addLog("找到微端窗口，无需选服", LogType::Success);
+        qDebug() << "找到微端窗口，无需选服";
     }
     else if (platformType == 1)
     {
         latestServerX = (x - 285) * DPI / 96 + rectHall.left - rectServer.left;
         latestServerY = (y + 45) * DPI / 96 + rectHall.top - rectServer.top;
-        addLog(QString("找到4399的选服窗口，位置(%2,%3)").arg(latestServerX).arg(latestServerY), LogType::Success);
+        qDebug() << QString("找到4399的选服窗口，位置(%2,%3)").arg(latestServerX).arg(latestServerY);
     }
     else if (platformType == 2)
     {
         latestServerX = (rectServer.right - rectServer.left) / 2 - 115 * DPI / 96; // 中央位置左偏115
         latestServerY = 267 * DPI / 96;
-        addLog(QString("找到QQ空间的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
+        qDebug() << QString("找到QQ空间的选服窗口，位置(%2,%3)").arg(x).arg(y);
     }
     else if (platformType == 3)
     {
         latestServerX = (rectServer.right - rectServer.left) / 2 + 30 * DPI / 96; // 中央位置右偏30
         latestServerY = 580 * DPI / 96;
-        addLog(QString("找到QQ大厅的选服窗口，位置(%2,%3)").arg(x).arg(y), LogType::Success);
+        qDebug() << QString("找到QQ大厅的选服窗口，位置(%2,%3)").arg(x).arg(y);
     }
     else if (platformType == 4)
     {
@@ -4797,7 +4789,7 @@ BOOL StarryCard::closeHealthTip(uint8_t retryCount)
 {
     if(!IsWindowVisible(hwndGame))
     {
-        addLog("游戏窗口未显示，无法关闭健康提示", LogType::Error);
+        qDebug() << "游戏窗口未显示，无法关闭健康提示";
         return FALSE;
     }
 
@@ -4814,7 +4806,7 @@ BOOL StarryCard::closeHealthTip(uint8_t retryCount)
         QImage imgGame = captureWindowByHandle(hwndGame,"主页面");
         if (imgGame.isNull())
         {
-            addLog("获取游戏窗口截图失败", LogType::Error);
+            qDebug() << "获取游戏窗口截图失败";
             return FALSE;
         }
 
@@ -4825,19 +4817,19 @@ BOOL StarryCard::closeHealthTip(uint8_t retryCount)
         {
             // 点击关闭健康提示
             leftClickDPI(hwndGame, 588, 204);
-            addLog("点击关闭健康提示成功", LogType::Success);
+            qDebug() << "点击关闭健康提示成功";
             sleepByQElapsedTimer(100); // 等待100毫秒
             if(hashRankCurrent != positionTemplateHashes["(178,96)排行"]) // 健康提示出现且排行榜未出现，视为有假期特惠挡住
             {
                 // 点击关闭假期特惠
                 leftClickDPI(hwndGame, 840, 44);
-                addLog("点击关闭假期特惠成功", LogType::Success);
+                qDebug() << "点击关闭假期特惠成功";
             }
             return TRUE;
         }
         sleepByQElapsedTimer(1000);
     }
-    addLog("健康提示未显示", LogType::Warning);
+    qDebug() << "健康提示未显示";
     return FALSE;
 }
 
@@ -4911,7 +4903,7 @@ BOOL StarryCard::goToPage(PageType targetPage, uint8_t retryCount)
 
         if(position.contains(targetPageName))
         {
-            addLog("成功前往" + targetPageName + "页面", LogType::Success);
+            qDebug() << QString("成功前往%1页面").arg(targetPageName);
             return TRUE;
         }
         else if(position == "(94,260)卡片制作")
@@ -4928,7 +4920,7 @@ BOOL StarryCard::goToPage(PageType targetPage, uint8_t retryCount)
         }
         sleepByQElapsedTimer(300);
     }
-    QMessageBox::warning(this, "提示", "前往" + targetPageName + "页面失败");
+    qDebug() << QString("前往%1页面失败").arg(targetPageName);
     return FALSE;
 }
 
@@ -5523,6 +5515,9 @@ void EnhancementWorker::startEnhancement()
         m_parent->isEnhancing = true;
         emit logMessage("开始强化流程", LogType::Success);
 
+        // 关闭健康提示
+        m_parent->closeHealthTip(1);
+
         while(!m_parent->goToPage(StarryCard::PageType::CardEnhance) && m_parent->isEnhancing)
         {
             emit logMessage("未找到卡片强化页面，尝试刷新游戏窗口...", LogType::Warning);
@@ -5554,12 +5549,13 @@ void EnhancementWorker::performEnhancement()
         return;
     }
 
+    // 创建本地副本避免跨线程访问QStringList
+    QStringList cardTypesCopy = m_parent->requiredCardTypes;
+
     while (m_parent->isEnhancing)
     {
         QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
         std::vector<CardInfo> cardVector;
-        // 创建本地副本避免跨线程访问QStringList
-        QStringList cardTypesCopy = m_parent->requiredCardTypes;
         cardVector = m_parent->cardRecognizer->recognizeCards(screenshot, cardTypesCopy);
         if (cardVector.empty())
         {
@@ -5655,8 +5651,8 @@ void EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& card
                 hasEnoughCards = false;
                 if(level - 1 > requiredLevel)
                 {
-                    // 如果缺少的副卡不是主卡同等级的卡，尝试生产缺少的副卡
-                    emit logMessage(QString("%1 星主卡充足，尝试生产:%2 星副卡").arg(level - 1).arg(requiredLevel), LogType::Info);
+                    // 如果缺少的副卡不是主卡同等级的卡，尝试强化缺少的副卡
+                    emit logMessage(QString("%1 星主卡充足，尝试强化:%2 星副卡").arg(level - 1).arg(requiredLevel), LogType::Info);
                     level = requiredLevel + 1;
                 }
                 break;

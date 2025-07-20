@@ -37,8 +37,8 @@ public:
     // Card ROI constants
     static constexpr int CARD_TYPE_ROI_X = 8;
     static constexpr int CARD_TYPE_ROI_Y = 22;
-    static constexpr int CARD_TYPE_ROI_WIDTH = 33;
-    static constexpr int CARD_TYPE_ROI_HEIGHT = 15;
+    static constexpr int CARD_TYPE_ROI_WIDTH = 32;
+    static constexpr int CARD_TYPE_ROI_HEIGHT = 16;
     
     static constexpr int CARD_LEVEL_ROI_X = 9;
     static constexpr int CARD_LEVEL_ROI_Y = 8;
@@ -73,7 +73,7 @@ private:
 
     // 卡片类型哈希值
     QHash<QString, QString> cardTypeHashes;
-    QRect CARD_TYPE_ROI{8,22,33,15};
+    QRect CARD_TYPE_ROI{8,22,32,16};
 
     // 卡片等级哈希值
     QStringList cardLevelHashes;

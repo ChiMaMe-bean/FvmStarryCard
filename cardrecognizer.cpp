@@ -291,9 +291,14 @@ std::vector<CardInfo> CardRecognizer::recognizeCards(const QImage& screenshot, c
         QImage cardsAreaImage = cardAreaImage.copy(0, startY, cardAreaImage.width(), processHeight);
 
         // 保存卡片区域图像
-        // QString debugDir = getAppDataPath() + "/template_debug";
-        // QDir().mkpath(debugDir);
-        // cardsAreaImage.save(QString("%1/cards_area.png").arg(debugDir));
+        QString appDir = QCoreApplication::applicationDirPath();
+        QString screenshotsDir = appDir + "/screenshots";
+        QDir().mkpath(screenshotsDir);
+        if (cardsAreaImage.save(QString("%1/cards_area.png").arg(screenshotsDir))) {
+            qDebug() << "卡片区域图像保存成功";
+        } else {
+            qDebug() << "卡片区域图像保存失败";
+        }
         
         // 计算实际可处理的行数
         int maxRows = processHeight / CARD_HEIGHT;
