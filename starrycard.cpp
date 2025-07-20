@@ -1569,9 +1569,33 @@ void StarryCard::onCaptureAndRecognize()
         } else {
             addLog("未找到不绑定的天然香料", LogType::Warning);
         }
-        
-        addLog("香料识别测试完成", LogType::Info);
-        qDebug() << "=== 香料识别测试结束 ===";
+
+        sleepByQElapsedTimer(500);
+        QImage screenshotSpice = captureWindowByHandle(hwndGame,"合成屋");
+
+        if(checkSpicePosState(screenshotSpice, SPICE_AREA_HOUSE, "天然香料")) {
+            addLog("合成屋香料区域识别成功", LogType::Success);
+        } else {
+            addLog("合成屋香料区域识别失败", LogType::Warning);
+        }
+
+        // 测试2: 找到绑定的皇室香料
+        addLog("测试2: 找到绑定的皇室香料", LogType::Info);
+        QPair<bool, bool> spiceResult2 = recognizeSpice("皇室香料", true, false);
+        if (spiceResult2.first) {
+            addLog("成功识别到绑定的皇室香料", LogType::Success);
+        } else {
+            addLog("未找到绑定的皇室香料", LogType::Warning);
+        }
+
+        sleepByQElapsedTimer(500);
+        screenshotSpice = captureWindowByHandle(hwndGame,"合成屋");
+
+        if(checkSpicePosState(screenshotSpice, SPICE_AREA_HOUSE, "皇室香料")) {
+            addLog("合成屋香料区域识别成功", LogType::Success);
+        } else {
+            addLog("合成屋香料区域识别失败", LogType::Warning);
+        }
     }
 
     if (debugMode == "刷新测试" || debugMode == "全部功能") {
@@ -3429,8 +3453,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     qDebug() << "开始逐页向下翻页识别";
     addLog("开始逐页向下翻页识别", LogType::Info);
     
-    int maxPageDownAttempts = 50;
-    for (int pageIndex = 0; pageIndex < maxPageDownAttempts; ++pageIndex) {
+    for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
         qDebug() << "翻页" << (pageIndex + 1) << "次后检查第十个位置";
         
         // 点击下翻按钮
@@ -3687,6 +3710,24 @@ BOOL StarryCard::checkSynHousePosState(QImage screenshot, const QRect& pos, cons
     return hash == synHousePosTemplateHashes[templateName];
 }
 
+BOOL StarryCard::checkSpicePosState(QImage screenshot, const QRect& pos, const QString& templateName)
+{
+    // 获取当前应用程序的目录
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString screenshotsDir = appDir + "/screenshots";
+
+    // 生成固定的文件名
+    QString filename = QString("%1/screenshot_spice_%2.png").arg(screenshotsDir).arg(templateName).arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+    QImage spiceImage = screenshot.copy(pos);
+    if(spiceImage.isNull())
+    {
+        qDebug() << "合成屋香料区域截取失败";
+        return false;
+    }
+    spiceImage.save(filename);
+    return calculateImageHash(spiceImage, spiceTemplateRoi) == spiceTemplateHashes[templateName];
+}
+
 bool StarryCard::isPageAtTop()
 {
     if (!pageTemplatesLoaded || !hwndGame || !IsWindow(hwndGame)) {
@@ -3862,8 +3903,6 @@ bool StarryCard::loadSpiceTemplates()
     };
     
     spiceTemplateHashes.clear();
-    spiceTemplateImages.clear();
-    spiceTemplateHistograms.clear();
     
     for (const QString& spiceType : spiceTypes) {
         QString filePath = QString(":/items/spices/%1.png").arg(spiceType);
@@ -3874,22 +3913,13 @@ bool StarryCard::loadSpiceTemplates()
             continue;
         }
         
-        // 保存模板图像和计算颜色直方图
-        QRect roi(4, 4, 38, 24);  // 与四叶草相同的ROI区域
-        spiceTemplateImages[spiceType] = template_image;
-        QVector<double> histogram = calculateColorHistogram(template_image, roi);
-        spiceTemplateHistograms[spiceType] = histogram;
-        
-        // 计算哈希值
-        QString hash = calculateImageHash(template_image, roi);
-        spiceTemplateHashes[spiceType] = hash;
-        
-        // qDebug() << "成功加载香料模板:" << spiceType << "颜色直方图特征数:" << histogram.size();
+        // 计算并保存模板哈希值
+        spiceTemplateHashes.insert(spiceType, calculateImageHash(template_image, spiceTemplateRoi));
     }
     
-    spiceTemplatesLoaded = !spiceTemplateHistograms.isEmpty();
+    spiceTemplatesLoaded = !spiceTemplateHashes.isEmpty();
     if (spiceTemplatesLoaded) {
-        qDebug() << "香料模板加载完成，总数:" << spiceTemplateHistograms.size();
+        qDebug() << "香料模板加载完成，总数:" << spiceTemplateHashes.size();
     } else {
         qDebug() << "香料模板加载失败，没有成功加载任何模板";
     }
@@ -3900,56 +3930,46 @@ bool StarryCard::loadSpiceTemplates()
 QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spice_bound, bool spice_unbound)
 {
     if (!spiceTemplatesLoaded) {
-        addLog("香料模板未加载，无法进行识别", LogType::Error);
+        qDebug() << "香料模板未加载，无法进行识别";
         return qMakePair(false, false);
     }
     
     if (!hwndGame || !IsWindow(hwndGame)) {
-        addLog("游戏窗口无效，无法进行香料识别", LogType::Error);
+        qDebug() << "游戏窗口无效，无法进行香料识别";
         return qMakePair(false, false);
     }
     
-    addLog(QString("开始识别香料: %1").arg(spiceType), LogType::Info);
-    
-    // 步骤1: 翻页到顶部（与四叶草识别逻辑相同）
-    qDebug() << "开始翻页到顶部";
-    addLog("正在翻页到顶部...", LogType::Info);
+    qDebug() << QString("开始识别香料: %1").arg(spiceType);
     
     // 循环点击上翻按钮直到翻到顶部
-    int maxPageUpAttempts = 20;
-    for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
+    for (int attempt = 0; attempt < 20; ++attempt) {
         if (isPageAtTop()) {
-            qDebug() << "成功翻页到顶部，总共点击" << (attempt + 1) << "次";
-            addLog(QString("成功翻页到顶部，总共点击 %1 次").arg(attempt + 1), LogType::Success);
+            qDebug() << QString("成功翻页到顶部，总共点击 %1 次").arg(attempt);
             break;
         }
 
         leftClickDPI(hwndGame, 532, 539);
         sleepByQElapsedTimer(100);
         
-        if (attempt == maxPageUpAttempts - 1) {
+        if (attempt == 19) {
             qDebug() << "翻页到顶部失败，已达最大尝试次数";
-            addLog("翻页到顶部失败", LogType::Warning);
         }
     }
     
     // 步骤2: 识别当前位置的10个香料
     qDebug() << "开始识别当前位置的香料";
-    addLog("开始识别当前位置的香料", LogType::Info);
-    
-    int maxPageAttempts = 20;  // 最大翻页尝试次数
-    
-    for (int pageAttempt = 0; pageAttempt < maxPageAttempts; ++pageAttempt) {
-        QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
-        if (screenshot.isNull()) {
-            addLog("截取游戏窗口失败", LogType::Error);
-            continue;
-        }
+
+    QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
+    if (screenshot.isNull()) {
+        qDebug() << "截取游戏窗口失败";
+        return qMakePair(false, false);
+    }
         
-        // 以坐标(33,526)为左上角，截取宽度为490像素，高度为49像素的区域
-        QRect spiceArea(33, 526, 490, 49);
-        QImage spiceStrip = screenshot.copy(spiceArea);
-        
+    // 以坐标(33,526)为左上角，截取宽度为490像素，高度为49像素的区域
+    QRect spiceArea(33, 526, 490, 49);
+    QImage spiceStrip = screenshot.copy(spiceArea);
+    
+    for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
         if (!spiceStrip.isNull()) {
             // 将此区域在宽度上分成十张，每张图片49*49像素
             for (int i = 0; i < 10; ++i) {
@@ -3964,73 +3984,72 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
                 int click_x = 33 + x_offset + 24;  // 计算香料中心位置
                 int click_y = 526 + 24;
                 
-                qDebug() << "第" << (pageAttempt * 10 + i + 1) << "个香料识别";
-                
                 if (recognizeSingleSpice(singleSpice, spiceType, click_x, click_y, spice_bound, spice_unbound)) {
-                    // recognizeSingleSpice 内部已经处理了绑定状态检查和点击操作
-                    // 需要返回实际的绑定状态，重新检查一次以获取状态
-                    bool actualBindState = isSpiceBound(singleSpice);
-                    return qMakePair(true, actualBindState);
+                    return qMakePair(true, isSpiceBound(singleSpice));
                 }
             }
         }
+    }
+
+    // 步骤3: 逐页向下翻页并只检查第十个位置
+    qDebug() << "开始逐页向下翻页识别";
+    
+    for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
+        qDebug() << QString("翻页 %1 次后检查第十个位置").arg(pageIndex + 1);
         
-        // 步骤4: 如果未找到匹配的香料，则翻页继续匹配
-        // 点击向下翻页按钮(535, 563)1次，与四叶草识别逻辑保持一致
-        qDebug() << "未找到匹配的香料，开始翻页";
-        addLog(QString("第 %1 页未找到匹配香料，翻页继续").arg(pageAttempt + 1), LogType::Info);
-        
+        // 点击下翻按钮
         leftClickDPI(hwndGame, 535, 563);
-        sleepByQElapsedTimer(100);
-        qDebug() << "点击向下翻页按钮1次";
+        sleepByQElapsedTimer(50);
         
+        // 只检查第十个位置（翻页后这个位置会更新）
+        QImage screenshotAfterPage = captureWindowByHandle(hwndGame,"主页面");
+        if (!screenshotAfterPage.isNull()) {
+            QRect spiceAreaAfterPage(33, 526, 490, 49);
+            QImage spiceStripAfterPage = screenshotAfterPage.copy(spiceAreaAfterPage);
+            
+            if (!spiceStripAfterPage.isNull()) {
+                // 检查第十个位置（索引为9）
+                int x_offset = 9 * 49;
+                QRect tenthSpiceRect(x_offset, 0, 49, 49);
+                QImage tenthSpice = spiceStripAfterPage.copy(tenthSpiceRect);
+                
+                if (!tenthSpice.isNull()) {
+                    int click_x = 33 + x_offset + 24;
+                    int click_y = 526 + 24;
+                    
+                    qDebug() << QString("第 %1 个香料识别").arg(pageIndex + 11);
+                    if (recognizeSingleSpice(tenthSpice, spiceType, click_x, click_y, spice_bound, spice_unbound)) {
+                        return qMakePair(true, isSpiceBound(tenthSpice));
+                    }
+                }
+            }
+        }
+
         // 检查是否翻页到底部
         if (isPageAtBottom()) {
-            qDebug() << "已翻页到底部，终止香料识别";
-            addLog("已翻页到底部，未找到匹配的香料", LogType::Warning);
+            qDebug() << "已翻页到底部，终止识别";
             break;
-        } else {
-            addLog(QString("第 %1 页检查完成，继续下一页").arg(pageAttempt + 1), LogType::Info);
         }
     }
     
     // 识别失败
-    addLog(QString("香料识别失败: %1").arg(spiceType), LogType::Error);
+    qDebug() << QString("香料识别失败: %1").arg(spiceType);
     return qMakePair(false, false);
 }
 
 bool StarryCard::recognizeSingleSpice(const QImage& spiceImage, const QString& spiceType, int positionX, int positionY, 
                                       bool spice_bound, bool spice_unbound)
 {
-    if (spiceImage.isNull()) {
-        return false;
-    }
-    
-    // 使用颜色直方图进行匹配
-    QRect spiceROI(4, 4, 38, 24);
-    double similarity = 0.0;
-    
-    if (spiceTemplateImages.contains(spiceType)) {
-        QImage templateImage = spiceTemplateImages[spiceType];
-        similarity = calculateColorHistogramSimilarity(spiceImage, templateImage, spiceROI);
-    }
-    
-    // 输出相似度用于调试
-    qDebug() << "香料与" << spiceType << "的相似度:" << QString::number(similarity, 'f', 4);
-    
-    // 设置相似度阈值（与要求保持一致）
-    double similarityThreshold = 1.00; // 100%相似度
-    
     // 检查是否匹配
-    if (similarity >= similarityThreshold) {
-        addLog(QString("找到匹配的香料: %1").arg(spiceType), LogType::Success);
+    if (spiceTemplateHashes[spiceType] == calculateImageHash(spiceImage, spiceTemplateRoi)) {
+        qDebug() << QString("找到匹配的香料: %1").arg(spiceType);
         
         // 步骤3: 检查绑定状态
         bool actualBindState = false;
         if (checkSpiceBindState(spiceImage, spice_bound, spice_unbound, actualBindState)) {
             // 步骤5: 点击该香料中心位置
             leftClickDPI(hwndGame, positionX, positionY);
-            addLog(QString("点击香料中心位置: (%1, %2)").arg(positionX).arg(positionY), LogType::Success);
+            qDebug() << QString("点击香料中心位置: (%1, %2)").arg(positionX).arg(positionY);
             return true;
         }
     }
@@ -4049,7 +4068,7 @@ bool StarryCard::checkSpiceBindState(const QImage& spiceImage, bool spice_bound,
     
     // 检查实际绑定状态
     actualBindState = isSpiceBound(spiceImage);
-    addLog(QString("香料绑定状态: %1").arg(actualBindState ? "绑定" : "未绑定"), LogType::Info);
+    qDebug() << QString("香料绑定状态: %1").arg(actualBindState ? "绑定" : "未绑定");
     
     // 检查绑定状态是否符合要求
     bool bindStateMatches = false;
@@ -4065,7 +4084,7 @@ bool StarryCard::checkSpiceBindState(const QImage& spiceImage, bool spice_bound,
     }
     
     if (!bindStateMatches) {
-        addLog("香料绑定状态不符合要求，继续寻找", LogType::Info);
+        qDebug() << "香料绑定状态不符合要求，继续寻找";
     }
     
     return bindStateMatches;
@@ -4084,7 +4103,6 @@ bool StarryCard::isSpiceBound(const QImage& spiceImage)
     // 确保ROI区域在图像范围内
     if (!spiceImage.rect().contains(bindStateROI)) {
         qDebug() << "香料图像尺寸不正确，图像大小:" << spiceImage.size() << "ROI区域:" << bindStateROI;
-        addLog("香料图像尺寸不正确，无法进行绑定状态识别", LogType::Warning);
         return false;
     }
     
@@ -5564,14 +5582,19 @@ void EnhancementWorker::performEnhancement()
         }
 
         // 调用强化处理方法
-        performEnhancementOnce(cardVector);
+        if (!performEnhancementOnce(cardVector) && m_parent->isEnhancing)
+        {
+            // 返回值为FALSE，且未停止强化，说明未找到可以强化的卡片，启动制卡流程
+            emit logMessage("未找到可以强化的卡片，启动制卡流程", LogType::Info);
+            // 此处待实现制卡流程
+        }
     }
 
     m_parent->isEnhancing = false;
     emit enhancementFinished();
 }
 
-void EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
+BOOL EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& cardVector)
 {
     emit logMessage("开始分析卡片强化配置", LogType::Info);
     
@@ -5692,7 +5715,7 @@ void EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& card
                     emit logMessage(QString("未找到四叶草：%1").arg(levelConfig.clover), LogType::Warning);
                     m_parent->isEnhancing = false;
                     emit showWarningMessage("错误", "未找到四叶草，强化已停止！");
-                    return;
+                    return FALSE;
                 }
             }
             
@@ -5713,7 +5736,7 @@ void EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& card
                 {
                     m_parent->isEnhancing = false;
                     emit showWarningMessage("错误", "强化按钮异常，强化已停止！");
-                    return;
+                    return FALSE;
                 }
                 threadSafeSleep(30);
             }
@@ -5731,7 +5754,7 @@ void EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& card
                 {
                     m_parent->isEnhancing = false;
                     emit showWarningMessage("错误", "副卡位置异常，强化已停止！");
-                    return;
+                    return FALSE;
                 }
                 threadSafeSleep(30);
             }
@@ -5744,21 +5767,21 @@ void EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& card
                 if (m_parent->checkSynHousePosState(screenshot, m_parent->MAIN_CARD_POS, "mainCardEmpty"))
                 {
                     emit logMessage(QString("主卡位置为空，卸卡完成，%1-%2星强化完成").arg(level - 1).arg(level), LogType::Success);
-                    return;
+                    return TRUE;
                 }
                 else if(i == 99)
                 {
                     m_parent->isEnhancing = false;
                     emit showWarningMessage("错误", "主卡位置异常，强化已停止！");
-                    return;
+                    return FALSE;
                 }
                 threadSafeSleep(30);
             }
         }
     }
-    
-    m_parent->isEnhancing = false;
-    emit showWarningMessage("强化停止", "没有找到可以强化的卡片，强化已停止！");
+
+    // 未找到可以强化的卡片，启动制卡流程
+    return FALSE;
 }
 
 void EnhancementWorker::threadSafeSleep(int ms)

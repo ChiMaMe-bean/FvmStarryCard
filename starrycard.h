@@ -81,7 +81,7 @@ signals:
 private:
     StarryCard* m_parent;
     void performEnhancement();
-    void performEnhancementOnce(const std::vector<CardInfo>& cardVector);
+    BOOL performEnhancementOnce(const std::vector<CardInfo>& cardVector);
     void threadSafeSleep(int ms);
 };
 
@@ -358,9 +358,10 @@ private:
     
     // 香料识别相关数据
     QHash<QString, QString> spiceTemplateHashes; // 香料类型名 -> 哈希值
-    QHash<QString, QImage> spiceTemplateImages; // 香料类型名 -> 模板图像
-    QHash<QString, QVector<double>> spiceTemplateHistograms; // 香料类型名 -> 颜色直方图
     bool spiceTemplatesLoaded = false;
+    QRect spiceTemplateRoi = QRect(6, 6, 32, 16); // 香料模板ROI区域
+    BOOL checkSpicePosState(QImage screenshot, const QRect& pos, const QString& templateName);
+    const QRect SPICE_AREA_HOUSE = QRect(157, 372, 49, 49); // 合成屋香料区域
     
     // 翻页检测相关数据
     QImage pageUpTemplate;      // 翻页到顶部模板图像
