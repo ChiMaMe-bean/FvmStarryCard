@@ -7,7 +7,10 @@
         <file>items/icons/icon256.ico</file>
         <file>items/icons/icon512.ico</file>
         <file>items/icons/uparrow_1f.svg</file>
+        <file>items/icons/制卡方案.svg</file>
         <file>items/icons/勾选.svg</file>
-        <file>items/icons/日志.svg</file>
+        <file>items/icons/强化方案.svg</file>
+        <file>items/icons/强化日志.svg</file>
+        <file>items/icons/强化统计.svg</file>
     </qresource>
 </RCC>

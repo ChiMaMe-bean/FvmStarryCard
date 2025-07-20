@@ -11,6 +11,7 @@
 #include <QFileDialog>
 #include <QIcon>
 #include <QPixmap>
+#include <QPainter>
 #include <QPalette>
 #include <QBrush>
 #include <QFile>
@@ -186,6 +187,8 @@ StarryCard::StarryCard(QWidget *parent)
     QString testHash = calculateImageHash(testImage);
     qDebug() << "8x8白色图像哈希值:" << testHash;
     qDebug() << "=== 图像哈希算法测试结束 ===";
+
+    addLog("欢迎使用星空强卡器", LogType::Info);
 }
 
 void StarryCard::setupUI()
@@ -242,13 +245,38 @@ void StarryCard::setupUI()
     // 设置图标和文本布局
     QSize iconSize(32, 32);
     QList<QToolButton*> buttons = {btn1, btn2, btn3, btn4};
-    QStringList buttonTexts = {"强化日志", "强化方案", "制卡方案", "功能 4"};
+    QStringList buttonTexts = {"强化日志", "强化方案", "制卡方案", "强化统计"};
+    QStringList iconPaths = {":/items/icons/强化日志.svg", ":/items/icons/强化方案.svg", ":/items/icons/制卡方案.svg", ":/items/icons/强化统计.svg"};
+    
     for (int idx = 0; idx < buttons.size(); ++idx) {
         QToolButton *btn = buttons[idx];
         if (btn) {
             btn->setCheckable(true);
             btn->setStyleSheet(buttonStyle);
-            btn->setIcon(QIcon::fromTheme("document-new"));
+            
+            // 创建自适应图标，支持选中/非选中状态切换
+            QIcon adaptiveIcon;
+            
+            // 加载原始SVG
+            QIcon originalIcon(iconPaths[idx]);
+            
+            // 非选中状态：创建轮廓效果（边框样式）
+            QPixmap uncheckedPixmap = originalIcon.pixmap(iconSize);
+            QPainter uncheckedPainter(&uncheckedPixmap);
+            
+            // 方法1：降低透明度以模拟边框效果
+            uncheckedPainter.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+            uncheckedPainter.fillRect(uncheckedPixmap.rect(), QColor(0, 0, 0, 100)); // 更低的透明度
+            uncheckedPainter.end();
+            
+            // 选中状态：使用原始图标
+            QPixmap checkedPixmap = originalIcon.pixmap(iconSize);
+            
+            // 添加到自适应图标
+            adaptiveIcon.addPixmap(uncheckedPixmap, QIcon::Normal, QIcon::Off);   // 非选中
+            adaptiveIcon.addPixmap(checkedPixmap, QIcon::Normal, QIcon::On);      // 选中
+            
+            btn->setIcon(adaptiveIcon);
             btn->setIconSize(iconSize);
             btn->setText(buttonTexts[idx]);
             btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
@@ -499,15 +527,15 @@ void StarryCard::setupUI()
     captureBtn->setEnabled(false); // 初始状态禁用
     captureBtn->setStyleSheet(R"(
         QPushButton {
-            background-color: rgba(125, 197, 255, 200);
+            background-color: rgba(102, 204, 255, 200);
             color: #003D7A;
-            border: 2px solid rgba(125, 197, 255, 255);
+            border: 2px solid rgba(102, 204, 255, 255);
             border-radius: 8px;
             font-weight: bold;
             font-size: 11px;
         }
         QPushButton:hover {
-            background-color: rgba(125, 197, 255, 255);
+            background-color: rgba(102, 204, 255, 255);
             color: white;
         }
         QPushButton:pressed {
@@ -515,7 +543,7 @@ void StarryCard::setupUI()
             color: white;
         }
         QPushButton:disabled {
-            background-color: rgba(125, 197, 255, 200);
+            background-color: rgba(102, 204, 255, 200);
             color: rgba(0, 61, 122, 100);
             border: 2px solid rgba(200, 200, 200, 150);
         }
@@ -576,9 +604,9 @@ void StarryCard::setupUI()
     currentBgLabel = new QLabel();
     currentBgLabel->setStyleSheet(R"(
         QLabel {
-            background-color: rgba(125, 197, 255, 200);
+            background-color: rgba(102, 204, 255, 200);
             color: #003D7A;
-            border: 2px solid rgba(125, 197, 255, 255);
+            border: 2px solid rgba(102, 204, 255, 255);
             font-size: 10px;
             border-radius: 3px;
             padding: 1px 2px;
@@ -695,15 +723,15 @@ void StarryCard::setupUI()
     enhancementBtn->setFixedHeight(40);
     enhancementBtn->setStyleSheet(R"(
         QPushButton {
-            background-color: rgba(125, 197, 255, 200);
+            background-color: rgba(102, 204, 255, 200);
             color: #003D7A;
-            border: 2px solid rgba(125, 197, 255, 255);
+            border: 2px solid rgba(102, 204, 255, 255);
             border-radius: 8px;
             font-weight: bold;
             font-size: 12px;
         }
         QPushButton:hover {
-            background-color: rgba(125, 197, 255, 255);
+            background-color: rgba(102, 204, 255, 255);
             color: white;
         }
         QPushButton:pressed {
@@ -2040,8 +2068,8 @@ int StarryCard::getMinEnhancementLevel() const
 
 void StarryCard::onEnhancementConfigChanged()
 {
-    // 自动保存配置
-    saveEnhancementConfig();
+    // 延迟保存配置，避免频繁I/O操作
+    scheduleConfigSave();
 }
 
 void StarryCard::onMaxEnhancementLevelChanged()
@@ -2066,7 +2094,7 @@ void StarryCard::onMaxEnhancementLevelChanged()
     // 延迟保存配置，避免频繁I/O操作
     scheduleConfigSave();
     
-    addLog(QString("最高强化等级已设置为: %1级").arg(maxLevel), LogType::Info);
+    addLog(QString("最高强化等级已设置为: %1级").arg(maxLevel), LogType::Success);
 }
 
 void StarryCard::onMinEnhancementLevelChanged()
@@ -2285,25 +2313,29 @@ void StarryCard::loadEnhancementConfig()
     
     QJsonObject config = doc.object();
     
+    // 加载配置时阻止信号发射，避免触发保存
     for (int row = 0; row < 14; ++row) {
         QString levelKey = QString("%1-%2").arg(row).arg(row + 1);
         if (!config.contains(levelKey)) continue;
         
         QJsonObject levelConfig = config[levelKey].toObject();
         
-        // 设置副卡配置
+        // 设置副卡配置，阻止信号发射
         QComboBox* subCard1 = qobject_cast<QComboBox*>(enhancementTable->cellWidget(row, 1));
         if (subCard1 && levelConfig.contains("subcard1")) {
             int value = levelConfig["subcard1"].toInt();
             int index = value - getMinSubCardLevel(row);
             if (index >= 0 && index < subCard1->count()) {
+                subCard1->blockSignals(true);
                 subCard1->setCurrentIndex(index);
+                subCard1->blockSignals(false);
             }
         }
         
         QComboBox* subCard2 = qobject_cast<QComboBox*>(enhancementTable->cellWidget(row, 2));
         if (subCard2 && levelConfig.contains("subcard2")) {
             int value = levelConfig["subcard2"].toInt();
+            subCard2->blockSignals(true);
             if (value == -1) {
                 subCard2->setCurrentIndex(0);
             } else {
@@ -2312,11 +2344,13 @@ void StarryCard::loadEnhancementConfig()
                     subCard2->setCurrentIndex(index);
                 }
             }
+            subCard2->blockSignals(false);
         }
         
         QComboBox* subCard3 = qobject_cast<QComboBox*>(enhancementTable->cellWidget(row, 3));
         if (subCard3 && levelConfig.contains("subcard3")) {
             int value = levelConfig["subcard3"].toInt();
+            subCard3->blockSignals(true);
             if (value == -1) {
                 subCard3->setCurrentIndex(0);
             } else {
@@ -2325,6 +2359,7 @@ void StarryCard::loadEnhancementConfig()
                     subCard3->setCurrentIndex(index);
                 }
             }
+            subCard3->blockSignals(false);
         }
         
         // 设置四叶草配置
@@ -2333,7 +2368,9 @@ void StarryCard::loadEnhancementConfig()
             QString value = levelConfig["clover"].toString();
             int index = clover->findText(value);
             if (index >= 0) {
+                clover->blockSignals(true);
                 clover->setCurrentIndex(index);
+                clover->blockSignals(false);
             }
         }
         
@@ -2345,10 +2382,14 @@ void StarryCard::loadEnhancementConfig()
         
         if (bindCheck && unboundCheck) {
             if (levelConfig.contains("clover_bound")) {
+                bindCheck->blockSignals(true);
                 bindCheck->setChecked(levelConfig["clover_bound"].toBool());
+                bindCheck->blockSignals(false);
             }
             if (levelConfig.contains("clover_unbound")) {
+                unboundCheck->blockSignals(true);
                 unboundCheck->setChecked(levelConfig["clover_unbound"].toBool());
+                unboundCheck->blockSignals(false);
             }
         }
         
@@ -2359,7 +2400,9 @@ void StarryCard::loadEnhancementConfig()
     if (maxEnhancementLevelSpinBox && config.contains("max_enhancement_level")) {
         int maxLevel = config["max_enhancement_level"].toInt();
         if (maxLevel >= 1 && maxLevel <= 14) {
+            maxEnhancementLevelSpinBox->blockSignals(true);
             maxEnhancementLevelSpinBox->setValue(maxLevel);
+            maxEnhancementLevelSpinBox->blockSignals(false);
         }
     }
     
@@ -2367,7 +2410,9 @@ void StarryCard::loadEnhancementConfig()
     if (minEnhancementLevelSpinBox && config.contains("min_enhancement_level")) {
         int minLevel = config["min_enhancement_level"].toInt();
         if (minLevel >= 1 && minLevel <= 14) {
+            minEnhancementLevelSpinBox->blockSignals(true);
             minEnhancementLevelSpinBox->setValue(minLevel);
+            minEnhancementLevelSpinBox->blockSignals(false);
         }
     }
     
@@ -2423,26 +2468,29 @@ void StarryCard::loadEnhancementConfigFromFile()
         return;
     }
     
-    // 加载配置到表格
+    // 加载配置到表格，阻止信号发射避免触发保存
     for (int row = 0; row < 14; ++row) {
         QString levelKey = QString("%1-%2").arg(row).arg(row + 1);
         if (!config.contains(levelKey)) continue;
         
         QJsonObject levelConfig = config[levelKey].toObject();
         
-        // 设置副卡配置
+        // 设置副卡配置，阻止信号发射
         QComboBox* subCard1 = qobject_cast<QComboBox*>(enhancementTable->cellWidget(row, 1));
         if (subCard1 && levelConfig.contains("subcard1")) {
             int value = levelConfig["subcard1"].toInt();
             int index = value - getMinSubCardLevel(row);
             if (index >= 0 && index < subCard1->count()) {
+                subCard1->blockSignals(true);
                 subCard1->setCurrentIndex(index);
+                subCard1->blockSignals(false);
             }
         }
         
         QComboBox* subCard2 = qobject_cast<QComboBox*>(enhancementTable->cellWidget(row, 2));
         if (subCard2 && levelConfig.contains("subcard2")) {
             int value = levelConfig["subcard2"].toInt();
+            subCard2->blockSignals(true);
             if (value == -1) {
                 subCard2->setCurrentIndex(0);
             } else {
@@ -2451,11 +2499,13 @@ void StarryCard::loadEnhancementConfigFromFile()
                     subCard2->setCurrentIndex(index);
                 }
             }
+            subCard2->blockSignals(false);
         }
         
         QComboBox* subCard3 = qobject_cast<QComboBox*>(enhancementTable->cellWidget(row, 3));
         if (subCard3 && levelConfig.contains("subcard3")) {
             int value = levelConfig["subcard3"].toInt();
+            subCard3->blockSignals(true);
             if (value == -1) {
                 subCard3->setCurrentIndex(0);
             } else {
@@ -2464,6 +2514,7 @@ void StarryCard::loadEnhancementConfigFromFile()
                     subCard3->setCurrentIndex(index);
                 }
             }
+            subCard3->blockSignals(false);
         }
         
         // 设置四叶草配置
@@ -2472,7 +2523,9 @@ void StarryCard::loadEnhancementConfigFromFile()
             QString value = levelConfig["clover"].toString();
             int index = clover->findText(value);
             if (index >= 0) {
+                clover->blockSignals(true);
                 clover->setCurrentIndex(index);
+                clover->blockSignals(false);
             }
         }
         
@@ -2484,10 +2537,14 @@ void StarryCard::loadEnhancementConfigFromFile()
         
         if (bindCheck && unboundCheck) {
             if (levelConfig.contains("clover_bound")) {
+                bindCheck->blockSignals(true);
                 bindCheck->setChecked(levelConfig["clover_bound"].toBool());
+                bindCheck->blockSignals(false);
             }
             if (levelConfig.contains("clover_unbound")) {
+                unboundCheck->blockSignals(true);
                 unboundCheck->setChecked(levelConfig["clover_unbound"].toBool());
+                unboundCheck->blockSignals(false);
             }
         }
         
@@ -2498,7 +2555,9 @@ void StarryCard::loadEnhancementConfigFromFile()
     if (maxEnhancementLevelSpinBox && config.contains("max_enhancement_level")) {
         int maxLevel = config["max_enhancement_level"].toInt();
         if (maxLevel >= 1 && maxLevel <= 14) {
+            maxEnhancementLevelSpinBox->blockSignals(true);
             maxEnhancementLevelSpinBox->setValue(maxLevel);
+            maxEnhancementLevelSpinBox->blockSignals(false);
         }
     }
     
@@ -2506,7 +2565,9 @@ void StarryCard::loadEnhancementConfigFromFile()
     if (minEnhancementLevelSpinBox && config.contains("min_enhancement_level")) {
         int minLevel = config["min_enhancement_level"].toInt();
         if (minLevel >= 1 && minLevel <= 14) {
+            minEnhancementLevelSpinBox->blockSignals(true);
             minEnhancementLevelSpinBox->setValue(minLevel);
+            minEnhancementLevelSpinBox->blockSignals(false);
         }
     }
     
@@ -2517,8 +2578,8 @@ void StarryCard::loadEnhancementConfigFromFile()
     
     addLog("从文件加载配置成功: " + QFileInfo(fileName).fileName(), LogType::Success);
     
-    // 自动保存当前配置以覆盖默认配置
-    saveEnhancementConfig();
+    // 延迟保存当前配置以覆盖默认配置，避免频繁I/O操作
+    scheduleConfigSave();
 }
 
 QStringList StarryCard::getCardTypes() const
@@ -3115,7 +3176,6 @@ bool StarryCard::loadCloverTemplates()
     cloverTemplatesLoaded = !cloverTemplateHistograms.isEmpty();
     if (cloverTemplatesLoaded) {
         qDebug() << "四叶草模板加载完成，总数:" << cloverTemplateHistograms.size();
-        addLog(QString("成功加载 %1 个四叶草模板").arg(cloverTemplateHistograms.size()), LogType::Success);
     } else {
         qDebug() << "四叶草模板加载失败，没有成功加载任何模板";
         addLog("四叶草模板加载失败", LogType::Error);
@@ -3138,7 +3198,6 @@ bool StarryCard::loadBindStateTemplate()
     // 计算绑定状态模板的哈希值
     bindStateTemplateHash = calculateImageHash(bindStateTemplate);
     qDebug() << "绑定状态模板加载成功，哈希值:" << bindStateTemplateHash;
-    addLog("绑定状态模板加载成功", LogType::Success);
     
     // 保存绑定状态模板用于调试
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
@@ -3459,7 +3518,7 @@ bool StarryCard::loadPageTemplates()
     // qDebug() << "翻页到底部模板加载成功，颜色直方图特征数:" << pageDownHistogram.size();
     
     pageTemplatesLoaded = true;
-    addLog("翻页模板加载成功", LogType::Success);
+    qDebug() << "翻页模板加载成功";
     
     // 保存模板图像用于调试
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
@@ -3839,10 +3898,8 @@ bool StarryCard::loadSpiceTemplates()
     spiceTemplatesLoaded = !spiceTemplateHistograms.isEmpty();
     if (spiceTemplatesLoaded) {
         qDebug() << "香料模板加载完成，总数:" << spiceTemplateHistograms.size();
-        addLog(QString("成功加载 %1 个香料模板").arg(spiceTemplateHistograms.size()), LogType::Success);
     } else {
         qDebug() << "香料模板加载失败，没有成功加载任何模板";
-        addLog("香料模板加载失败", LogType::Error);
     }
     
     return spiceTemplatesLoaded;
@@ -4098,7 +4155,7 @@ void StarryCard::updateRecipeCombo()
         recipeCombo->setCurrentIndex(-1); // 不选择任何项
     }
     
-    addLog(QString("配方选择下拉框已更新，可用配方: %1").arg(availableRecipes.join(", ")), LogType::Info);
+    qDebug() << QString("配方选择下拉框已更新，可用配方: %1").arg(availableRecipes.join(", "));
 }
 
 // 发送鼠标消息,计算DPI缩放

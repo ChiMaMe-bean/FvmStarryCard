@@ -225,7 +225,6 @@ bool RecipeRecognizer::loadRecipeTemplates()
     }
     
     qDebug() << "找到配方模板文件:" << recipeFiles;
-    addLog(QString("找到 %1 个配方模板文件").arg(recipeFiles.size()), LogType::Info);
     
     for (const QString& recipeFile : recipeFiles) {
         // 提取配方类型（文件名，不包含扩展名）
@@ -236,7 +235,6 @@ bool RecipeRecognizer::loadRecipeTemplates()
         
         if (template_image.isNull()) {
             qDebug() << "无法加载配方模板:" << recipeType << "路径:" << filePath;
-            addLog(QString("无法加载配方模板: %1").arg(recipeType), LogType::Warning);
             continue;
         }
         
@@ -246,17 +244,14 @@ bool RecipeRecognizer::loadRecipeTemplates()
         recipeTemplateHistograms[recipeType] = histogram;
         
         // qDebug() << "成功加载配方模板:" << recipeType << "颜色直方图特征数:" << histogram.size();
-        addLog(QString("成功加载配方模板: %1").arg(recipeType), LogType::Info);
     }
     
     recipeTemplatesLoaded = !recipeTemplateHistograms.isEmpty();
     if (recipeTemplatesLoaded) {
         qDebug() << "配方模板加载完成，总数:" << recipeTemplateHistograms.size();
         QStringList loadedTypes = recipeTemplateHistograms.keys();
-        addLog(QString("成功加载 %1 个配方模板: %2").arg(recipeTemplateHistograms.size()).arg(loadedTypes.join(", ")), LogType::Success);
     } else {
         qDebug() << "配方模板加载失败，没有成功加载任何模板";
-        addLog("配方模板加载失败", LogType::Error);
     }
     
     return recipeTemplatesLoaded;
