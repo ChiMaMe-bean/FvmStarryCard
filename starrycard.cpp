@@ -3712,19 +3712,7 @@ BOOL StarryCard::checkSynHousePosState(QImage screenshot, const QRect& pos, cons
 
 BOOL StarryCard::checkSpicePosState(QImage screenshot, const QRect& pos, const QString& templateName)
 {
-    // 获取当前应用程序的目录
-    QString appDir = QCoreApplication::applicationDirPath();
-    QString screenshotsDir = appDir + "/screenshots";
-
-    // 生成固定的文件名
-    QString filename = QString("%1/screenshot_spice_%2.png").arg(screenshotsDir).arg(templateName).arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
     QImage spiceImage = screenshot.copy(pos);
-    if(spiceImage.isNull())
-    {
-        qDebug() << "合成屋香料区域截取失败";
-        return false;
-    }
-    spiceImage.save(filename);
     return calculateImageHash(spiceImage, spiceTemplateRoi) == spiceTemplateHashes[templateName];
 }
 
