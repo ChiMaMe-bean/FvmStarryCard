@@ -62,6 +62,7 @@ int DPI = 96;  // 默认 DPI 值为 96，即 100% 缩  放
 const QPoint StarryCard::CARD_ENHANCE_POS(94, 326);      // 卡片强化按钮位置
 const QPoint StarryCard::CARD_PRODUCE_POS(94, 260);      // 卡片制作按钮位置
 const QPoint StarryCard::SYNTHESIS_HOUSE_POS(675, 556);  // 合成屋按钮位置
+const QPoint StarryCard::ENHANCE_SCROLL_TOP(910, 120);    // 强化滚动条顶部位置
 
 // 定义全局强化配置数据实例
 GlobalEnhancementConfig g_enhancementConfig;
@@ -563,8 +564,8 @@ void StarryCard::setupUI()
     rightLayout->addWidget(debugLabel);
     
     debugCombo = new QComboBox();
-    debugCombo->addItems({"位置跳转", "配方识别", "卡片识别", "四叶草识别", "香料识别", "刷新测试", "全部功能"});
-    debugCombo->setCurrentText("位置跳转"); // 设置默认选择
+    debugCombo->addItems({"滚动条测试", "配方识别", "卡片识别", "四叶草识别", "香料识别", "刷新测试", "全部功能"});
+    debugCombo->setCurrentText("滚动条测试"); // 设置默认选择
     debugCombo->setStyleSheet(R"(
         QComboBox {
             background-color: rgba(255, 255, 255, 220);
@@ -1473,11 +1474,54 @@ void StarryCard::onCaptureAndRecognize()
     QString debugMode = debugCombo->currentText();
     addLog(QString("执行调试功能: %1").arg(debugMode), LogType::Info);
     
-    if (debugMode == "位置跳转" || debugMode == "全部功能") {
-        // 执行位置跳转功能
-        addLog("开始位置跳转...", LogType::Info);
-        goToPage(PageType::CardEnhance); // 卡片强化
-        goToPage(PageType::CardProduce); // 卡片制作
+    // if (debugMode == "位置跳转" || debugMode == "全部功能") {
+    //     // 执行位置跳转功能
+    //     addLog("开始位置跳转...", LogType::Info);
+    //     goToPage(PageType::CardEnhance); // 卡片强化
+    //     goToPage(PageType::CardProduce); // 卡片制作
+    // }
+
+    if (debugMode == "滚动条测试" || debugMode == "全部功能") {
+        addLog("开始滚动条测试...", LogType::Info);
+        if(resetScrollBar())
+        {
+            addLog("滚动条重置成功", LogType::Success);
+        }
+        else
+        {
+            addLog("滚动条重置失败", LogType::Error);
+        }
+
+        QImage screenshotScrollBar = captureWindowByHandle(hwndGame,"主页面");
+
+        int length = getLengthOfScrollBar(screenshotScrollBar);
+        int scrollOnceLength = (length *7 /8) + 1;
+        if(length > 0)
+        {
+            addLog(QString("滚动条长度: %1").arg(length), LogType::Success);
+        }
+        else
+        {
+            addLog("无法获取滚动条长度", LogType::Error);
+        }
+
+        QRect cardAreaRoi = QRect(559, 91, 343, 456);
+        QString appDir = QCoreApplication::applicationDirPath();
+        QString screenshotsDir = appDir + "/screenshots";
+        for(int i = 0; i < 10; i++)
+        {
+            QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
+            QImage cardArea = screenshot.copy(cardAreaRoi);
+            cardArea.save(QString("%1/cardArea_%2.png").arg(screenshotsDir).arg(i));
+            if(checkSynHousePosState(screenshot, ENHANCE_SCROLL_BAR_BOTTOM, "enhanceScrollBottom"))
+            {
+                addLog(QString("滚动条底部识别成功: %1").arg(i), LogType::Success);
+                break;
+            }
+            fastMouseDrag(ENHANCE_SCROLL_TOP.x(), ENHANCE_SCROLL_TOP.y() + i * length, scrollOnceLength, true);
+            sleepByQElapsedTimer(500);
+        }
+        
     }
     
     if (debugMode == "配方识别" || debugMode == "全部功能") {
@@ -3516,7 +3560,6 @@ bool StarryCard::loadPageTemplates()
     
     // 计算翻页到顶部模板的颜色直方图
     pageUpHistogram = calculateColorHistogram(pageUpTemplate);
-    // qDebug() << "翻页到顶部模板加载成功，颜色直方图特征数:" << pageUpHistogram.size();
     
     // 加载翻页到底部模板
     QString pageDownPath = ":/items/position/PageDown.png";
@@ -3530,14 +3573,9 @@ bool StarryCard::loadPageTemplates()
     
     // 计算翻页到底部模板的颜色直方图
     pageDownHistogram = calculateColorHistogram(pageDownTemplate);
-    // qDebug() << "翻页到底部模板加载成功，颜色直方图特征数:" << pageDownHistogram.size();
     
     pageTemplatesLoaded = true;
     qDebug() << "翻页模板加载成功";
-    
-    // 保存模板图像用于调试
-    QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
-    QDir().mkpath(debugDir);
     
     return true;
 }
@@ -3610,6 +3648,8 @@ void StarryCard::loadSynHousePosTemplates()
         ":/items/position/subCardEmpty.png",
         ":/items/position/insuranceEmpty.png",
         ":/items/position/enhanceButtonReady.png",
+        ":/items/position/enhanceScrollTop.png",
+        ":/items/position/enhanceScrollBottom.png",
     };
 
     for (const QString& filePath : positionFiles) {
@@ -3623,8 +3663,8 @@ void StarryCard::loadSynHousePosTemplates()
 
         QString hash = calculateImageHash(img);
         synHousePosTemplateHashes[key] = hash;
-        qDebug() << "合成屋模板：键:" << key << "哈希值:" << hash;
     }
+    qDebug() << "合成屋模板加载完成，总数:" << synHousePosTemplateHashes.size();
 }
 
 QString StarryCard::recognizeCurrentPosition(QImage screenshot)
@@ -3706,7 +3746,11 @@ QString StarryCard::recognizeCurrentPosition(QImage screenshot)
 
 BOOL StarryCard::checkSynHousePosState(QImage screenshot, const QRect& pos, const QString& templateName)
 {
-    QString hash = calculateImageHash(screenshot, pos);
+    QImage synHouseImage = screenshot.copy(pos);
+    // QString appDir = QCoreApplication::applicationDirPath();
+    // QString screenshotsDir = appDir + "/screenshots";
+    // synHouseImage.save(QString("%1/%2.png").arg(screenshotsDir).arg(templateName));
+    QString hash = calculateImageHash(synHouseImage);
     return hash == synHousePosTemplateHashes[templateName];
 }
 
@@ -5175,7 +5219,7 @@ QWidget* StarryCard::createSpiceConfigPage()
     
     // 设置表格的大小策略和固定宽度
     spiceTable->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    spiceTable->setFixedWidth(540);  // 增加总宽度以容纳新列
+    spiceTable->setFixedWidth(540);  // 固定的总宽度，禁止修改
     
     // 设置具体的列宽
     spiceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
@@ -5207,7 +5251,8 @@ QWidget* StarryCard::createSpiceConfigPage()
         QString iconPath = QString(":/items/spicesShow/%1.png").arg(spiceTypes[row]);
         QPixmap pixmap(iconPath);
         if (!pixmap.isNull()) {
-            spiceIcon->setPixmap(pixmap); // 直接使用原图，不缩放
+            spiceIcon->setPixmap(pixmap);
+            // spiceIcon->setPixmap(pixmap.scaled(33, 33, Qt::KeepAspectRatio, Qt::SmoothTransformation));
         }
         spiceIcon->setAlignment(Qt::AlignCenter);
         
@@ -5297,7 +5342,7 @@ QWidget* StarryCard::createSpiceConfigPage()
     layout->addWidget(spiceTable);
     
     // 添加说明文字
-    QLabel* tipLabel = new QLabel("提示：制卡方案会根据强化方案自动选择卡片类型，优先制作强化所需的卡片");
+    QLabel* tipLabel = new QLabel("提示：制卡方案会根据强化方案自动制作强化所需的卡片");
     tipLabel->setAlignment(Qt::AlignCenter);
     tipLabel->setStyleSheet(R"(
         font-size: 12px; 
@@ -5588,6 +5633,7 @@ void EnhancementWorker::performEnhancement()
             // 返回值为FALSE，且未停止强化，说明未找到可以强化的卡片，启动制卡流程
             emit logMessage("未找到可以强化的卡片，启动制卡流程", LogType::Info);
             // 此处待实现制卡流程
+            m_parent->isEnhancing = false;
         }
     }
 
@@ -5788,6 +5834,82 @@ BOOL EnhancementWorker::performEnhancementOnce(const std::vector<CardInfo>& card
 void EnhancementWorker::threadSafeSleep(int ms)
 {
     QThread::msleep(ms);
+}
+
+// ==================== 滚动条拖动相关 ====================
+
+void StarryCard::fastMouseDrag(int startX, int startY, int distance, bool downward)
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        qDebug() << "无效的窗口句柄，无法执行快速鼠标拖动";
+        return;
+    }
+
+    double scaleFactor = static_cast<double>(DPI) / 96.0;
+    
+    // 计算结束坐标（仅垂直移动）
+    int endX = startX;
+    int endY = downward ? (startY + distance) : (startY - distance);
+    
+    // 计算DPI缩放后的坐标
+    POINT startPoint = {static_cast<int>(startX * scaleFactor), static_cast<int>(startY * scaleFactor)};
+    POINT endPoint = {static_cast<int>(endX * scaleFactor), static_cast<int>(endY * scaleFactor)};
+    
+    // 构造LPARAM参数
+    LPARAM startLParam = MAKELPARAM(startPoint.x, startPoint.y);
+    LPARAM endLParam = MAKELPARAM(endPoint.x, endPoint.y);
+    
+    // 快速拖动：最少步骤完成拖动
+    // 步骤1: 鼠标按下
+    PostMessage(hwndGame, WM_LBUTTONDOWN, MK_LBUTTON, startLParam);
+    
+    // 步骤2: 移动到目标位置
+    PostMessage(hwndGame, WM_MOUSEMOVE, MK_LBUTTON, endLParam);
+    
+    // 步骤3: 鼠标释放
+    PostMessage(hwndGame, WM_LBUTTONUP, 0, endLParam);
+}
+
+// 重置滚动条到顶端
+BOOL StarryCard::resetScrollBar()
+{
+    leftClickDPI(hwndGame, 910, 112);
+    int i = 0;
+    QRect scrollTopRoi = QRect(902, 98, 16, 16);
+    while(i < 100)
+    {
+        if(checkSynHousePosState(captureWindowByHandle(hwndGame, "主页面"), scrollTopRoi, "enhanceScrollTop"))
+        {
+            return TRUE;
+        }
+        sleepByQElapsedTimer(50);
+        i++;
+    }
+    return FALSE;
+}
+
+// 获取滚动条长度
+int StarryCard::getLengthOfScrollBar(QImage screenshot)
+{
+    if(screenshot.width() < 950 && screenshot.height() < 596)
+    {
+        qDebug() << "截图尺寸异常，无法获取滚动条长度";
+        return 0;
+    }
+
+    // 目标颜色 #0A486F (RGB: 10, 72, 111)
+    QColor targetColor(10, 72, 111);
+    int targetRgb = targetColor.rgb();
+
+    for(int i = 0; i < 450; i++)
+    {
+        QColor pixelColor = screenshot.pixelColor(903, 108 + i);
+        if(pixelColor.rgb() == targetRgb)
+        {
+            return i;
+        }
+    }
+    return 0;
 }
 
 

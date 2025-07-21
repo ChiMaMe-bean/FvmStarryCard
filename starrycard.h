@@ -382,6 +382,7 @@ private:
     const QRect SUB_CARD_POS = QRect(269, 261, 32, 32);  // 副卡位置
     const QRect INSURANCE_POS = QRect(382, 423, 20, 20); // 保险位置
     const QRect ENHANCE_BUTTON_POS = QRect(261, 425, 20, 20); // 强化按钮位置
+    const QRect ENHANCE_SCROLL_BAR_BOTTOM = QRect(902, 526, 16, 16); // 强化滚动条底部位置
 
     // 页面跳转枚举
     enum class PageType {
@@ -390,15 +391,21 @@ private:
     };
 
     BOOL goToPage(PageType targetPage, uint8_t retryCount = 20);
+    
+    // 滚动条相关方法
+    void fastMouseDrag(int startX, int startY, int distance, bool downward = true);
+    BOOL resetScrollBar();
+    int getLengthOfScrollBar(QImage screenshot);
 
     // 位置模板相关数据
     QHash<QString, QString> positionTemplateHashes; // 位置模板名称 -> 哈希值
     
     // 游戏界面位置常量
-    static const QPoint CARD_ENHANCE_POS;     // 卡片强化按钮位置 (94,326)
-    static const QPoint CARD_PRODUCE_POS;     // 卡片制作按钮位置 (94,260)
-    static const QPoint SYNTHESIS_HOUSE_POS;  // 合成屋按钮位置 (675,556)
-    static const QPoint RANKING_POS;          // 排行榜位置 (178,96)
+    static const QPoint CARD_ENHANCE_POS;       // 卡片强化按钮位置 (94,326)
+    static const QPoint CARD_PRODUCE_POS;       // 卡片制作按钮位置 (94,260)
+    static const QPoint SYNTHESIS_HOUSE_POS;    // 合成屋按钮位置 (675,556)
+    static const QPoint RANKING_POS;            // 排行榜位置 (178,96)
+    static const QPoint ENHANCE_SCROLL_TOP;     // 强化滚动条顶部位置 (902, 98)
 
     // 卡片强化属性
     int maxEnhancementLevel = 10;
