@@ -30,6 +30,7 @@ set(PROJECT_SOURCES
         resources_position.qrc
         resources_recipe.qrc
         resources_spices.qrc
+        resources_spicesShow.qrc
         reciperecognizer.cpp
         reciperecognizer.h
 )

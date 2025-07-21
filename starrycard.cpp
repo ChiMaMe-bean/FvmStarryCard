@@ -5191,14 +5191,14 @@ QWidget* StarryCard::createSpiceConfigPage()
     
     // 设置具体的列宽
     spiceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    spiceTable->setColumnWidth(0, 110);   // 香料种类
+    spiceTable->setColumnWidth(0, 120);   // 香料种类
     spiceTable->setColumnWidth(1, 70);    // 是否使用
     spiceTable->setColumnWidth(2, 70);    // 是否绑定
     spiceTable->setColumnWidth(3, 70);    // 数量限制
     spiceTable->setColumnWidth(4, 70);   // 限制数量
     
     // 设置行高以适应大图标
-    spiceTable->verticalHeader()->setDefaultSectionSize(40);
+    spiceTable->verticalHeader()->setDefaultSectionSize(50);
     
     // 香料种类列表
     QStringList spiceTypes = {
@@ -5216,10 +5216,10 @@ QWidget* StarryCard::createSpiceConfigPage()
         
         // 香料图标
         QLabel* spiceIcon = new QLabel();
-        QString iconPath = QString(":/items/spices/%1.png").arg(spiceTypes[row]);
+        QString iconPath = QString(":/items/spicesShow/%1.png").arg(spiceTypes[row]);
         QPixmap pixmap(iconPath);
         if (!pixmap.isNull()) {
-            spiceIcon->setPixmap(pixmap.scaled(35, 35, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            spiceIcon->setPixmap(pixmap); // 直接使用原图，不缩放
         }
         spiceIcon->setAlignment(Qt::AlignCenter);
         
@@ -5307,6 +5307,19 @@ QWidget* StarryCard::createSpiceConfigPage()
     }
     
     layout->addWidget(spiceTable);
+    
+    // 添加说明文字
+    QLabel* tipLabel = new QLabel("提示：制卡方案会根据强化方案自动选择卡片类型，优先制作强化所需的卡片");
+    tipLabel->setAlignment(Qt::AlignCenter);
+    tipLabel->setStyleSheet(R"(
+        font-size: 12px; 
+        color: #336699;
+        background-color: rgba(125, 197, 255, 100);
+        border-radius: 6px;
+        padding: 8px;
+        margin: 8px 0;
+    )");
+    layout->addWidget(tipLabel);
     
     // 加载现有配置
     loadSpiceConfig();
