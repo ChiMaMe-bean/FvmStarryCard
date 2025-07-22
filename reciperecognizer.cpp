@@ -10,7 +10,7 @@
 #include <algorithm>
 
 // 构造函数
-RecipeRecognizer::RecipeRecognizer() : recipeTemplatesLoaded(false)
+RecipeRecognizer::RecipeRecognizer() : recipeTemplatesLoaded(false), DPI(96), gameWindow(nullptr)
 {
 }
 
@@ -19,33 +19,33 @@ RecipeRecognizer::~RecipeRecognizer()
 {
 }
 
-// 设置回调函数
-void RecipeRecognizer::setLogCallback(LogCallback callback)
-{
-    m_logCallback = callback;
-}
-
-void RecipeRecognizer::setClickCallback(ClickCallback callback)
-{
-    m_clickCallback = callback;
-}
-
-void RecipeRecognizer::setCaptureCallback(CaptureCallback callback)
-{
-    m_captureCallback = callback;
-}
-
-void RecipeRecognizer::setSleepCallback(SleepCallback callback)
-{
-    m_sleepCallback = callback;
-}
-
-// 内部辅助方法
+// 内部辅助方法（原来的回调函数现在变成直接实现）
 void RecipeRecognizer::addLog(const QString& message, LogType type)
 {
-    if (m_logCallback) {
-        m_logCallback(message, type);
+    // 获取当前时间
+    QString timestamp = QTime::currentTime().toString("hh:mm:ss");
+    
+    // 根据日志类型设置前缀
+    QString typePrefix;
+    switch (type) {
+        case LogType::Success:
+            typePrefix = "[SUCCESS]";
+            break;
+        case LogType::Warning:
+            typePrefix = "[WARNING]";
+            break;
+        case LogType::Error:
+            typePrefix = "[ERROR]";
+            break;
+        case LogType::Info:
+            typePrefix = "[INFO]";
+            break;
+        default:
+            typePrefix = "[LOG]";
     }
+    
+    // 输出到调试控制台
+    qDebug() << QString("%1 %2 %3").arg(timestamp, typePrefix, message);
 }
 
 // 重载版本，默认使用 Info 类型
@@ -56,24 +56,123 @@ void RecipeRecognizer::addLog(const QString& message)
 
 bool RecipeRecognizer::leftClickDPI(HWND hwnd, int x, int y)
 {
-    if (m_clickCallback) {
-        return m_clickCallback(hwnd, x, y);
-    }
-    return false;
+    double scaleFactor = static_cast<double>(DPI) / 96.0;
+    
+    // 计算DPI缩放后的坐标
+    int scaledX = static_cast<int>(x * scaleFactor);
+    int scaledY = static_cast<int>(y * scaleFactor);
+
+    // 发送鼠标消息
+    BOOL bResult = PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(scaledX, scaledY));
+    PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(scaledX, scaledY));
+    return bResult != 0;
 }
 
 QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowName)
 {
-    if (m_captureCallback) {
-        return m_captureCallback();
+    // 如果传入的句柄无效，尝试使用成员变量的句柄
+    if (!hwnd || !IsWindow(hwnd)) {
+        if (gameWindow && IsWindow(gameWindow)) {
+            hwnd = gameWindow;
+            addLog(QString("使用成员变量窗口句柄替代无效句柄: %1").arg(windowName), LogType::Warning);
+        } else {
+            addLog(QString("无效的窗口句柄且无备用句柄: %1").arg(windowName), LogType::Error);
+            return QImage();
+        }
     }
-    return QImage();
+
+    // 获取窗口位置和大小
+    RECT rect;
+    if(windowName == "主页面") // 主页面截图区域
+    {
+        rect.left = 0;
+        rect.top = 0;
+        rect.right = 950;
+        rect.bottom = 596;
+    }
+    else if (!GetWindowRect(hwnd, &rect)) {
+        addLog(QString("获取窗口位置失败: %1").arg(windowName), LogType::Error);
+        return QImage();
+    }
+    
+    // 获取窗口DC
+    HDC hdcWindow = GetDC(hwnd);
+    if (!hdcWindow) {
+        addLog(QString("获取窗口DC失败: %1").arg(windowName), LogType::Error);
+        return QImage();
+    }
+
+    // 创建兼容DC和位图
+    HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
+    if (!hdcMemDC) {
+        addLog(QString("创建兼容DC失败: %1").arg(windowName), LogType::Error);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
+    
+    HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
+    if (!hBitmap) {
+        addLog(QString("创建兼容位图失败: %1").arg(windowName), LogType::Error);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMemDC, hBitmap);
+
+    // 复制窗口内容到位图
+    if (!BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY)) {
+        addLog(QString("复制窗口内容失败: %1").arg(windowName), LogType::Error);
+        SelectObject(hdcMemDC, hOldBitmap);
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    // 转换为QImage
+    QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+    
+    // 设置BITMAPINFO结构
+    BITMAPINFO bmi;
+    ZeroMemory(&bmi, sizeof(BITMAPINFO));
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height; // 负值表示自上而下的位图
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    // 获取位图数据
+    if (!GetDIBits(hdcMemDC, hBitmap, 0, height, image.bits(), &bmi, DIB_RGB_COLORS)) {
+        addLog(QString("获取位图数据失败: %1").arg(windowName), LogType::Error);
+        SelectObject(hdcMemDC, hOldBitmap);
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMemDC);
+        ReleaseDC(hwnd, hdcWindow);
+        return QImage();
+    }
+
+    // 清理资源
+    SelectObject(hdcMemDC, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMemDC);
+    ReleaseDC(hwnd, hdcWindow);
+
+    addLog(QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height), LogType::Info);
+    return image;
 }
 
 void RecipeRecognizer::sleepByQElapsedTimer(int ms)
 {
-    if (m_sleepCallback) {
-        m_sleepCallback(ms);
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < ms)
+    {
+        QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
     }
 }
 

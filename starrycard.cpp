@@ -147,19 +147,7 @@ StarryCard::StarryCard(QWidget *parent)
     // 初始化 RecipeRecognizer
     recipeRecognizer = new RecipeRecognizer();
     
-    // 设置RecipeRecognizer回调函数
-    recipeRecognizer->setLogCallback([this](const QString& message, LogType type) {
-        addLog(message, type);
-    });
-    recipeRecognizer->setClickCallback([this](HWND hwnd, int x, int y) -> bool {
-        return leftClickDPI(hwnd, x, y);
-    });
-    recipeRecognizer->setCaptureCallback([this]() -> QImage {
-        return captureWindowByHandle(hwndGame,"主页面");
-    });
-    recipeRecognizer->setSleepCallback([this](int ms) {
-        sleepByQElapsedTimer(ms);
-    });
+    // 回调函数已移除，RecipeRecognizer现在直接实现这些功能
     
     // 初始化配方识别模板
     recipeRecognizer->loadRecipeTemplates();
@@ -1526,37 +1514,48 @@ void StarryCard::onCaptureAndRecognize()
     
     if (debugMode == "配方识别" || debugMode == "全部功能") {
         // 执行网格线调试
-        addLog("开始网格线调试...", LogType::Info);
+        qDebug() << "开始网格线调试...";
         recipeRecognizer->debugGridLines(screenshot);
         // 执行配方识别功能
-        addLog("开始配方识别...", LogType::Info);
+        qDebug() << "开始配方识别...";
         
         // 选择要匹配的配方模板（动态获取可用的配方类型）
         QStringList availableRecipes = getAvailableRecipeTypes();
         if (availableRecipes.isEmpty()) {
-            addLog("没有可用的配方模板，无法进行识别", LogType::Error);
+            qDebug() << "没有可用的配方模板，无法进行识别";
         } else {
             // 从UI中选择配方类型，必须明确选择
             QString targetRecipe;
             if (recipeCombo && recipeCombo->isEnabled() && recipeCombo->currentText() != "无可用配方") {
                 targetRecipe = recipeCombo->currentText();
-                addLog(QString("从UI选择配方类型: %1").arg(targetRecipe), LogType::Info);
+                qDebug() << QString("从UI选择配方类型: %1").arg(targetRecipe);
             } else {
-                addLog("UI未选择配方类型，配方识别失败", LogType::Error);
-                addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")), LogType::Info);
-                addLog("请在下拉框中选择要识别的配方类型", LogType::Info);
+                qDebug() << "UI未选择配方类型，配方识别失败";
+                qDebug() << QString("可用配方类型: %1").arg(availableRecipes.join(", "));
+                qDebug() << "请在下拉框中选择要识别的配方类型";
                 return; // 直接返回错误，不执行识别
             }
             
             if (!availableRecipes.contains(targetRecipe)) {
-                addLog(QString("选择的配方类型 '%1' 不存在，配方识别失败").arg(targetRecipe), LogType::Error);
-                addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")), LogType::Info);
+                qDebug() << QString("选择的配方类型 '%1' 不存在，配方识别失败").arg(targetRecipe);
+                qDebug() << QString("可用配方类型: %1").arg(availableRecipes.join(", "));
                 return; // 直接返回错误，不执行识别
             }
-            addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")), LogType::Info);
-            addLog(QString("选择匹配模板: %1").arg(targetRecipe), LogType::Info);
+            qDebug() << QString("可用配方类型: %1").arg(availableRecipes.join(", "));
+            qDebug() << QString("选择匹配模板: %1").arg(targetRecipe);
             
             // 执行带翻页功能的配方识别
+            if (!hwndGame || !IsWindow(hwndGame)) {
+                qDebug() << "游戏窗口句柄无效，无法进行配方识别";
+                return;
+            }
+            
+            // 设置RecipeRecognizer的参数
+            recipeRecognizer->setDPI(DPI);
+            recipeRecognizer->setGameWindow(hwndGame);
+            
+            qDebug() << QString("开始配方识别，游戏窗口句柄: %1, DPI: %2").arg(reinterpret_cast<quintptr>(hwndGame)).arg(DPI);
+            
             recipeRecognizer->recognizeRecipeWithPaging(screenshot, targetRecipe, hwndGame);
         }
     }
@@ -4031,7 +4030,7 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
         
         // 点击下翻按钮
         leftClickDPI(hwndGame, 535, 563);
-        sleepByQElapsedTimer(50);
+        sleepByQElapsedTimer(300);
         
         // 只检查第十个位置（翻页后这个位置会更新）
         QImage screenshotAfterPage = captureWindowByHandle(hwndGame,"主页面");
@@ -5152,8 +5151,8 @@ QWidget* StarryCard::createSpiceConfigPage()
             font-weight: bold;
         }
         QCheckBox::indicator {
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
             border: 2px solid rgba(102, 204, 255, 200);
             border-radius: 4px;
             background-color: rgba(255, 255, 255, 200);
@@ -5178,8 +5177,8 @@ QWidget* StarryCard::createSpiceConfigPage()
             background-color: rgba(102, 204, 255, 150);
             border: 1px solid rgba(102, 204, 255, 200);
             border-radius: 3px;
-            width: 16px;
-            height: 13px;
+            width: 20px;
+            height: 16px;
             subcontrol-origin: border;
             subcontrol-position: top right;
             margin-right: 2px;
@@ -5193,8 +5192,8 @@ QWidget* StarryCard::createSpiceConfigPage()
             background-color: rgba(102, 204, 255, 150);
             border: 1px solid rgba(102, 204, 255, 200);
             border-radius: 3px;
-            width: 16px;
-            height: 13px;
+            width: 20px;
+            height: 16px;
             subcontrol-origin: border;
             subcontrol-position: bottom right;
             margin-right: 2px;
@@ -5227,7 +5226,7 @@ QWidget* StarryCard::createSpiceConfigPage()
     spiceTable->setColumnWidth(1, 70);    // 是否使用
     spiceTable->setColumnWidth(2, 70);    // 是否绑定
     spiceTable->setColumnWidth(3, 70);    // 数量限制
-    spiceTable->setColumnWidth(4, 70);   // 限制数量
+    spiceTable->setColumnWidth(4, 210);   // 限制数量 (调整为540-120-70-70-70=210)
     
     // 设置行高以适应大图标
     spiceTable->verticalHeader()->setDefaultSectionSize(50);
@@ -5278,11 +5277,11 @@ QWidget* StarryCard::createSpiceConfigPage()
         connect(useCheckBox, &QCheckBox::toggled, this, &StarryCard::onSpiceConfigChanged);
         
         QWidget* useWidget = new QWidget();
-        QHBoxLayout* useLayout = new QHBoxLayout(useWidget);
-        useLayout->setContentsMargins(0, 0, 0, 0);
-        useLayout->addStretch();
-        useLayout->addWidget(useCheckBox);
-        useLayout->addStretch();
+        useWidget->setFixedSize(70, 50);  // 明确设置容器大小
+        QVBoxLayout* useLayout = new QVBoxLayout(useWidget);
+        useLayout->setContentsMargins(0, 5, 0, 10);  // 上下边距控制
+        useLayout->setSpacing(0);
+        useLayout->addWidget(useCheckBox, 0, Qt::AlignHCenter);
         
         spiceTable->setCellWidget(row, 1, useWidget);
         
@@ -5292,11 +5291,11 @@ QWidget* StarryCard::createSpiceConfigPage()
         connect(bindCheckBox, &QCheckBox::toggled, this, &StarryCard::onSpiceConfigChanged);
         
         QWidget* bindWidget = new QWidget();
-        QHBoxLayout* bindLayout = new QHBoxLayout(bindWidget);
-        bindLayout->setContentsMargins(0, 0, 0, 0);
-        bindLayout->addStretch();
-        bindLayout->addWidget(bindCheckBox);
-        bindLayout->addStretch();
+        bindWidget->setFixedSize(70, 50);  // 明确设置容器大小
+        QVBoxLayout* bindLayout = new QVBoxLayout(bindWidget);
+        bindLayout->setContentsMargins(0, 5, 0, 10);  // 上下边距控制
+        bindLayout->setSpacing(0);
+        bindLayout->addWidget(bindCheckBox, 0, Qt::AlignHCenter);
         
         spiceTable->setCellWidget(row, 2, bindWidget);
         

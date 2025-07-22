@@ -17,6 +17,8 @@
 #include <QThread>
 #include <QColor>
 #include <QRect>
+#include <QTime>
+#include <QElapsedTimer>
 #include <windows.h>
 #include <functional>
 #include <chrono>
@@ -34,21 +36,9 @@ public:
     static constexpr int GRID_VERTICAL_START = 4;
     static constexpr int GRID_VERTICAL_STEP = 49;
 
-    // 回调函数类型定义
-    using LogCallback = std::function<void(const QString& message, LogType type)>;
-    using ClickCallback = std::function<bool(HWND hwnd, int x, int y)>;
-    using CaptureCallback = std::function<QImage()>;
-    using SleepCallback = std::function<void(int ms)>;
-
     // 构造函数
     RecipeRecognizer();
     ~RecipeRecognizer();
-
-    // 设置回调函数
-    void setLogCallback(LogCallback callback);
-    void setClickCallback(ClickCallback callback);
-    void setCaptureCallback(CaptureCallback callback);
-    void setSleepCallback(SleepCallback callback);
 
     // 现有的网格线相关方法
     void getRecipeGridLines(const QImage& recipeArea, QVector<int>& xLines, QVector<int>& yLines);
@@ -68,6 +58,14 @@ public:
     void recognizeRecipeWithPaging(const QImage& screenshot, const QString& targetRecipe, HWND hwndGame);
     QStringList getAvailableRecipeTypes() const;
 
+    // 设置DPI值
+    void setDPI(int dpi) { DPI = dpi; }
+    int getDPI() const { return DPI; }
+    
+    // 设置游戏窗口句柄（用于后续操作）
+    void setGameWindow(HWND hwnd) { gameWindow = hwnd; }
+    HWND getGameWindow() const { return gameWindow; }
+
     // 访问器方法
     bool isRecipeTemplatesLoaded() const { return recipeTemplatesLoaded; }
     const QHash<QString, QImage>& getRecipeTemplateImages() const { return recipeTemplateImages; }
@@ -78,14 +76,12 @@ private:
     QHash<QString, QVector<double>> recipeTemplateHistograms;
     QHash<QString, QImage> recipeTemplateImages;
     bool recipeTemplatesLoaded;
+    
+    // DPI 设置和游戏窗口句柄
+    int DPI;
+    HWND gameWindow;
 
-    // 回调函数
-    LogCallback m_logCallback;
-    ClickCallback m_clickCallback;
-    CaptureCallback m_captureCallback;
-    SleepCallback m_sleepCallback;
-
-    // 内部辅助方法
+    // 内部辅助方法（原来的回调函数现在变成直接实现）
     void addLog(const QString& message, LogType type);
     void addLog(const QString& message);  // 重载版本提供默认行为
     bool leftClickDPI(HWND hwnd, int x, int y);
