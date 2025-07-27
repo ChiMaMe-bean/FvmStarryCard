@@ -1522,31 +1522,31 @@ void StarryCard::onCaptureAndRecognize()
         // 选择要匹配的配方模板（动态获取可用的配方类型）
         QStringList availableRecipes = getAvailableRecipeTypes();
         if (availableRecipes.isEmpty()) {
-            qDebug() << "没有可用的配方模板，无法进行识别";
+            addLog("没有可用的配方模板，无法进行识别", LogType::Error);
         } else {
             // 从UI中选择配方类型，必须明确选择
             QString targetRecipe;
             if (recipeCombo && recipeCombo->isEnabled() && recipeCombo->currentText() != "无可用配方") {
                 targetRecipe = recipeCombo->currentText();
-                qDebug() << QString("从UI选择配方类型: %1").arg(targetRecipe);
+                addLog(QString("从UI选择配方类型: %1").arg(targetRecipe));
             } else {
-                qDebug() << "UI未选择配方类型，配方识别失败";
-                qDebug() << QString("可用配方类型: %1").arg(availableRecipes.join(", "));
-                qDebug() << "请在下拉框中选择要识别的配方类型";
+                addLog("UI未选择配方类型，配方识别失败", LogType::Error);
+                addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")));
+                addLog("请在下拉框中选择要识别的配方类型");
                 return; // 直接返回错误，不执行识别
             }
             
             if (!availableRecipes.contains(targetRecipe)) {
-                qDebug() << QString("选择的配方类型 '%1' 不存在，配方识别失败").arg(targetRecipe);
-                qDebug() << QString("可用配方类型: %1").arg(availableRecipes.join(", "));
+                addLog(QString("选择的配方类型 '%1' 不存在，配方识别失败").arg(targetRecipe), LogType::Error);
+                addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")));
                 return; // 直接返回错误，不执行识别
             }
-            qDebug() << QString("可用配方类型: %1").arg(availableRecipes.join(", "));
-            qDebug() << QString("选择匹配模板: %1").arg(targetRecipe);
+            addLog(QString("可用配方类型: %1").arg(availableRecipes.join(", ")));
+            addLog(QString("选择匹配模板: %1").arg(targetRecipe));
             
             // 执行带翻页功能的配方识别
             if (!hwndGame || !IsWindow(hwndGame)) {
-                qDebug() << "游戏窗口句柄无效，无法进行配方识别";
+                addLog("游戏窗口句柄无效，无法进行配方识别", LogType::Error);
                 return;
             }
             
@@ -1554,7 +1554,7 @@ void StarryCard::onCaptureAndRecognize()
             recipeRecognizer->setDPI(DPI);
             recipeRecognizer->setGameWindow(hwndGame);
             
-            qDebug() << QString("开始配方识别，游戏窗口句柄: %1, DPI: %2").arg(reinterpret_cast<quintptr>(hwndGame)).arg(DPI);
+            addLog(QString("开始配方识别，游戏窗口句柄: %1, DPI: %2").arg(reinterpret_cast<quintptr>(hwndGame)).arg(DPI));
             
             recipeRecognizer->recognizeRecipeWithPaging(screenshot, targetRecipe, hwndGame);
         }

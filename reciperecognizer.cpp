@@ -51,7 +51,7 @@ void RecipeRecognizer::addLog(const QString& message, LogType type)
 // 重载版本，默认使用 Info 类型
 void RecipeRecognizer::addLog(const QString& message)
 {
-    addLog(message, LogType::Info);
+    qDebug() << message;
 }
 
 bool RecipeRecognizer::leftClickDPI(HWND hwnd, int x, int y)
@@ -74,9 +74,9 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
     if (!hwnd || !IsWindow(hwnd)) {
         if (gameWindow && IsWindow(gameWindow)) {
             hwnd = gameWindow;
-            addLog(QString("使用成员变量窗口句柄替代无效句柄: %1").arg(windowName), LogType::Warning);
+            qDebug() << QString("使用成员变量窗口句柄替代无效句柄: %1").arg(windowName);
         } else {
-            addLog(QString("无效的窗口句柄且无备用句柄: %1").arg(windowName), LogType::Error);
+            qDebug() << QString("无效的窗口句柄且无备用句柄: %1").arg(windowName);
             return QImage();
         }
     }
@@ -91,21 +91,21 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
         rect.bottom = 596;
     }
     else if (!GetWindowRect(hwnd, &rect)) {
-        addLog(QString("获取窗口位置失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("获取窗口位置失败: %1").arg(windowName);
         return QImage();
     }
     
     // 获取窗口DC
     HDC hdcWindow = GetDC(hwnd);
     if (!hdcWindow) {
-        addLog(QString("获取窗口DC失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("获取窗口DC失败: %1").arg(windowName);
         return QImage();
     }
 
     // 创建兼容DC和位图
     HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
     if (!hdcMemDC) {
-        addLog(QString("创建兼容DC失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("创建兼容DC失败: %1").arg(windowName);
         ReleaseDC(hwnd, hdcWindow);
         return QImage();
     }
@@ -115,7 +115,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
     
     HBITMAP hBitmap = CreateCompatibleBitmap(hdcWindow, width, height);
     if (!hBitmap) {
-        addLog(QString("创建兼容位图失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("创建兼容位图失败: %1").arg(windowName);
         DeleteDC(hdcMemDC);
         ReleaseDC(hwnd, hdcWindow);
         return QImage();
@@ -125,7 +125,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
 
     // 复制窗口内容到位图
     if (!BitBlt(hdcMemDC, 0, 0, width, height, hdcWindow, 0, 0, SRCCOPY)) {
-        addLog(QString("复制窗口内容失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("复制窗口内容失败: %1").arg(windowName);
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
@@ -148,7 +148,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
 
     // 获取位图数据
     if (!GetDIBits(hdcMemDC, hBitmap, 0, height, image.bits(), &bmi, DIB_RGB_COLORS)) {
-        addLog(QString("获取位图数据失败: %1").arg(windowName), LogType::Error);
+        qDebug() << QString("获取位图数据失败: %1").arg(windowName);
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
@@ -162,7 +162,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
     DeleteDC(hdcMemDC);
     ReleaseDC(hwnd, hdcWindow);
 
-    addLog(QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height), LogType::Info);
+    qDebug() << QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height);
     return image;
 }
 
@@ -176,8 +176,8 @@ void RecipeRecognizer::sleepByQElapsedTimer(int ms)
     }
 }
 
-// 计算颜色直方图
-QVector<double> RecipeRecognizer::calculateColorHistogram(const QImage& image, const QRect& roi)
+// 计算图像哈希值
+QString RecipeRecognizer::calculateImageHash(const QImage& image, const QRect& roi)
 {
     QImage targetImage = image;
     
@@ -186,129 +186,172 @@ QVector<double> RecipeRecognizer::calculateColorHistogram(const QImage& image, c
         targetImage = image.copy(roi);
     }
     
-    // 转换为HSV色彩空间，更适合颜色比较
-    QImage hsvImage = targetImage.convertToFormat(QImage::Format_RGB32);
+    // 转换为灰度并缩放为8x8像素进行哈希计算
+    QImage grayImage = targetImage.convertToFormat(QImage::Format_Grayscale8);
+    QImage hashImage = grayImage.scaled(8, 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     
-    // 创建HSV直方图：H(色相)16个bin，S(饱和度)12个bin，V(明度)8个bin
-    // 总共16*12*8 = 1536个特征
-    const int hBins = 16, sBins = 12, vBins = 8;
-    QVector<double> histogram(hBins * sBins * vBins, 0.0);
+    // 计算平均像素值
+    qint64 totalValue = 0;
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            totalValue += qGray(hashImage.pixel(x, y));
+        }
+    }
+    qint64 avgValue = totalValue / 64;
     
-    int totalPixels = 0;
-    
-    for (int y = 0; y < hsvImage.height(); ++y) {
-        for (int x = 0; x < hsvImage.width(); ++x) {
-            QRgb pixel = hsvImage.pixel(x, y);
-            
-            // 转换RGB到HSV
-            QColor color(pixel);
-            int h, s, v;
-            color.getHsv(&h, &s, &v);
-            
-            // 将HSV值映射到bin索引
-            int hBin = qBound(0, h * hBins / 360, hBins - 1);
-            int sBin = qBound(0, s * sBins / 256, sBins - 1);
-            int vBin = qBound(0, v * vBins / 256, vBins - 1);
-            
-            // 计算在直方图中的索引
-            int index = hBin * (sBins * vBins) + sBin * vBins + vBin;
-            histogram[index] += 1.0;
-            totalPixels++;
+    // 生成64位哈希值
+    QString hash;
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            int pixelValue = qGray(hashImage.pixel(x, y));
+            hash += (pixelValue >= avgValue) ? "1" : "0";
         }
     }
     
-    // 归一化直方图
-    if (totalPixels > 0) {
-        for (int i = 0; i < histogram.size(); ++i) {
-            histogram[i] /= totalPixels;
-        }
-    }
-    
-    return histogram;
+    return hash;
 }
 
-// 计算颜色直方图相似度
-double RecipeRecognizer::calculateColorHistogramSimilarity(const QImage& image1, const QImage& image2, const QRect& roi)
+// 计算哈希相似度 (基于汉明距离)
+double RecipeRecognizer::calculateHashSimilarity(const QString& hash1, const QString& hash2)
 {
-    QVector<double> hist1 = calculateColorHistogram(image1, roi);
-    QVector<double> hist2 = calculateColorHistogram(image2, roi);
-    
-    if (hist1.size() != hist2.size() || hist1.isEmpty()) {
+    if (hash1.length() != hash2.length() || hash1.isEmpty()) {
         return 0.0;
     }
     
-    // 使用相关系数计算相似度
-    double sum1 = 0.0, sum2 = 0.0, sum1Sq = 0.0, sum2Sq = 0.0, pSum = 0.0;
-    int n = hist1.size();
-    
-    for (int i = 0; i < n; ++i) {
-        sum1 += hist1[i];
-        sum2 += hist2[i];
-        sum1Sq += hist1[i] * hist1[i];
-        sum2Sq += hist2[i] * hist2[i];
-        pSum += hist1[i] * hist2[i];
+    int hammingDistance = 0;
+    for (int i = 0; i < hash1.length(); ++i) {
+        if (hash1[i] != hash2[i]) {
+            hammingDistance++;
+        }
     }
     
-    // 计算皮尔逊相关系数
-    double num = pSum - (sum1 * sum2 / n);
-    double den = sqrt((sum1Sq - sum1 * sum1 / n) * (sum2Sq - sum2 * sum2 / n));
-    
-    if (den == 0) return 0.0;
-    
-    double correlation = num / den;
-    
-    // 将相关系数转换为0-1之间的相似度
-    return (correlation + 1.0) / 2.0;
+    // 将汉明距离转换为相似度 (0-1之间)
+    double similarity = 1.0 - (static_cast<double>(hammingDistance) / hash1.length());
+    return similarity;
 }
 
-// 计算配方直方图
-QVector<double> RecipeRecognizer::calculateRecipeHistogram(const QImage& image)
+// 配方识别ROI常量定义
+const QRect RecipeRecognizer::RECIPE_ROI(4, 4, 38, 24);
+
+// 执行网格哈希匹配的通用方法
+QList<QPair<QPoint, double>> RecipeRecognizer::performGridHashMatching(const QImage& recipeArea, const QString& targetRecipe, 
+                                                                       const QVector<int>& xLines, const QVector<int>& yLines)
 {
-    // 转换为HSV色彩空间，更适合颜色比较
-    QImage hsvImage = image.convertToFormat(QImage::Format_RGB32);
+    QList<QPair<QPoint, double>> matches;
+    QImage targetTemplate = recipeTemplateImages[targetRecipe];
     
-    // 创建HSV直方图：H(色相)16个bin，S(饱和度)12个bin，V(明度)8个bin
-    // 总共16*12*8 = 1536个特征
-    const int hBins = 16, sBins = 12, vBins = 8;
-    QVector<double> histogram(hBins * sBins * vBins, 0.0);
+    // 输出当前使用的模板哈希值
+    if (recipeTemplateHashes.contains(targetRecipe)) {
+        QString currentTemplateHash = recipeTemplateHashes[targetRecipe];
+        qDebug() << QString("当前匹配模板 %1 的哈希值: %2").arg(targetRecipe).arg(currentTemplateHash);
+    }
     
-    int totalPixels = 0;
-    
-    for (int y = 0; y < hsvImage.height(); ++y) {
-        for (int x = 0; x < hsvImage.width(); ++x) {
-            QRgb pixel = hsvImage.pixel(x, y);
+    for (int row = 0; row + 1 < yLines.size(); ++row) {
+        for (int col = 0; col + 1 < xLines.size(); ++col) {
+            int x0 = xLines[col];
+            int y0 = yLines[row];
+            int w = xLines[col + 1] - x0;
+            int h = yLines[row + 1] - y0;
+            if (w <= 0 || h <= 0) continue;
             
-            // 转换RGB到HSV
-            QColor color(pixel);
-            int h, s, v;
-            color.getHsv(&h, &s, &v);
+            QRect gridRect(x0, y0, w, h);
+            QImage gridImage = recipeArea.copy(gridRect);
+            if (gridImage.isNull()) continue;
             
-            // 将HSV值映射到bin索引
-            int hBin = qBound(0, h * hBins / 360, hBins - 1);
-            int sBin = qBound(0, s * sBins / 256, sBins - 1);
-            int vBin = qBound(0, v * vBins / 256, vBins - 1);
+            // 使用配方ROI区域进行匹配
+            QImage gridROI = gridImage.copy(RECIPE_ROI);
+            if (gridROI.isNull()) continue;
             
-            // 计算在直方图中的索引
-            int index = hBin * (sBins * vBins) + sBin * vBins + vBin;
-            histogram[index] += 1.0;
-            totalPixels++;
+            QImage templateROI = targetTemplate.copy(RECIPE_ROI);
+            if (templateROI.isNull()) continue;
+            
+            QString gridHash = calculateImageHash(gridROI);
+            QString templateHash = calculateImageHash(templateROI);
+            double similarity = calculateHashSimilarity(gridHash, templateHash);
+            
+            // 输出哈希值比较信息
+            qDebug() << QString("网格(%1,%2) 哈希比较: 网格哈希=%3, 模板哈希=%4, 相似度=%5")
+                       .arg(x0).arg(y0).arg(gridHash).arg(templateHash).arg(QString::number(similarity, 'f', 4));
+            
+            matches.append(qMakePair(QPoint(x0, y0), similarity));
         }
     }
     
-    // 归一化直方图
-    if (totalPixels > 0) {
-        for (int i = 0; i < histogram.size(); ++i) {
-            histogram[i] /= totalPixels;
+    std::sort(matches.begin(), matches.end(), [](const QPair<QPoint, double>& a, const QPair<QPoint, double>& b) { 
+        return a.second > b.second; 
+    });
+    
+    return matches;
+}
+
+// 保存匹配调试图像的通用方法
+void RecipeRecognizer::saveMatchDebugImages(const QList<QPair<QPoint, double>>& matches, const QImage& recipeArea,
+                                           const QVector<int>& xLines, const QVector<int>& yLines, 
+                                           const QString& debugDir, const QString& timestamp, int duration)
+{
+    if (matches.isEmpty()) return;
+    
+    auto findGridRect = [&](const QPoint& pos) -> QRect {
+        int bestCol = -1, bestRow = -1;
+        for (int col = 0; col + 1 < xLines.size(); ++col) {
+            if (xLines[col] == pos.x()) { bestCol = col; break; }
+        }
+        for (int row = 0; row + 1 < yLines.size(); ++row) {
+            if (yLines[row] == pos.y()) { bestRow = row; break; }
+        }
+        if (bestCol >= 0 && bestRow >= 0) {
+            int x0 = xLines[bestCol];
+            int y0 = yLines[bestRow];
+            int w = xLines[bestCol+1] - x0;
+            int h = yLines[bestRow+1] - y0;
+            return QRect(x0, y0, w, h);
+        }
+        return QRect();
+    };
+    
+    // 输出识别结果汇总
+    QPoint bestPos = matches[0].first; 
+    double bestSim = matches[0].second;
+    qDebug() << QString("=== 页面识别结果 ===");
+    qDebug() << QString("最佳匹配位置: (%1,%2), 相似度: %3").arg(bestPos.x()).arg(bestPos.y()).arg(QString::number(bestSim, 'f', 4));
+    if (matches.size() >= 2) {
+        QPoint secondPos = matches[1].first; 
+        double secondSim = matches[1].second;
+        qDebug() << QString("次佳匹配位置: (%1,%2), 相似度: %3").arg(secondPos.x()).arg(secondPos.y()).arg(QString::number(secondSim, 'f', 4));
+    }
+    qDebug() << QString("===================");
+    
+    // 保存最佳匹配图像
+    QRect bestGridRect = findGridRect(bestPos);
+    if (bestGridRect.isValid()) {
+        QImage bestGridImage = recipeArea.copy(bestGridRect);
+        QString bestGridPath = debugDir + QString("/best_match_grid_%1_%2.png").arg(QString::number(bestSim, 'f', 4)).arg(timestamp);
+        if (bestGridImage.save(bestGridPath)) {
+            qDebug() << QString("最佳匹配网格图像已保存: %1").arg(bestGridPath);
+            qDebug() << "[DEBUG] 最佳匹配图片路径:" << bestGridPath << " 匹配度:" << bestSim << " 耗时:" << duration << "ms";
         }
     }
     
-    return histogram;
+    // 保存次佳匹配图像
+    if (matches.size() >= 2) {
+        QPoint secondPos = matches[1].first; 
+        double secondSim = matches[1].second;
+        QRect secondGridRect = findGridRect(secondPos);
+        if (secondGridRect.isValid()) {
+            QImage secondGridImage = recipeArea.copy(secondGridRect);
+            QString secondGridPath = debugDir + QString("/second_match_grid_%1_%2.png").arg(QString::number(secondSim, 'f', 4)).arg(timestamp);
+            if (secondGridImage.save(secondGridPath)) {
+                qDebug() << QString("次佳匹配网格图像已保存: %1").arg(secondGridPath);
+                qDebug() << "[DEBUG] 次佳匹配图片路径:" << secondGridPath << " 匹配度:" << secondSim << " 耗时:" << duration << "ms";
+            }
+        }
+    }
 }
 
 // 加载配方模板
 bool RecipeRecognizer::loadRecipeTemplates()
 {
-    recipeTemplateHistograms.clear();
+    recipeTemplateHashes.clear();
     recipeTemplateImages.clear();
     
     // 从资源文件中动态读取配方模板
@@ -319,7 +362,6 @@ bool RecipeRecognizer::loadRecipeTemplates()
     
     if (recipeFiles.isEmpty()) {
         qDebug() << "未找到任何配方模板文件";
-        addLog("未找到任何配方模板文件", LogType::Error);
         return false;
     }
     
@@ -337,18 +379,26 @@ bool RecipeRecognizer::loadRecipeTemplates()
             continue;
         }
         
-        // 保存模板图像和计算颜色直方图
+        // 保存模板图像和计算哈希值
         recipeTemplateImages[recipeType] = template_image;
-        QVector<double> histogram = calculateRecipeHistogram(template_image);
-        recipeTemplateHistograms[recipeType] = histogram;
+        QString hash = calculateImageHash(template_image);
+        recipeTemplateHashes[recipeType] = hash;
         
-        // qDebug() << "成功加载配方模板:" << recipeType << "颜色直方图特征数:" << histogram.size();
+        qDebug() << "成功加载配方模板:" << recipeType << "哈希值:" << hash;
     }
     
-    recipeTemplatesLoaded = !recipeTemplateHistograms.isEmpty();
+    recipeTemplatesLoaded = !recipeTemplateHashes.isEmpty();
     if (recipeTemplatesLoaded) {
-        qDebug() << "配方模板加载完成，总数:" << recipeTemplateHistograms.size();
-        QStringList loadedTypes = recipeTemplateHistograms.keys();
+        qDebug() << "配方模板加载完成，总数:" << recipeTemplateHashes.size();
+        
+        // 输出所有已加载的模板哈希值
+        qDebug() << "=== 所有配方模板哈希值 ===";
+        for (auto it = recipeTemplateHashes.begin(); it != recipeTemplateHashes.end(); ++it) {
+            qDebug() << QString("模板 %1: %2").arg(it.key()).arg(it.value());
+        }
+        qDebug() << "============================";
+        
+        QStringList loadedTypes = recipeTemplateHashes.keys();
     } else {
         qDebug() << "配方模板加载失败，没有成功加载任何模板";
     }
@@ -364,7 +414,7 @@ QStringList RecipeRecognizer::getAvailableRecipeTypes() const
     }
     
     // 返回所有已加载的配方类型，按名称排序
-    QStringList types = recipeTemplateHistograms.keys();
+    QStringList types = recipeTemplateHashes.keys();
     std::sort(types.begin(), types.end());
     return types;
 }
@@ -373,51 +423,57 @@ QStringList RecipeRecognizer::getAvailableRecipeTypes() const
 QPair<QString, double> RecipeRecognizer::recognizeRecipe(const QImage& recipeArea)
 {
     if (!recipeTemplatesLoaded) {
-        addLog("配方模板未加载，无法进行识别", LogType::Error);
+        qDebug() << "配方模板未加载，无法进行识别";
         return qMakePair("", 0.0);
     }
     
     if (recipeArea.isNull()) {
-        addLog("配方区域图像无效", LogType::Error);
+        qDebug() << "配方区域图像无效";
         return qMakePair("", 0.0);
     }
     
-    // 计算当前配方区域的颜色直方图
-    QVector<double> currentHistogram = calculateRecipeHistogram(recipeArea);
+    // 计算当前配方区域的哈希值
+    QString currentHash = calculateImageHash(recipeArea);
     
     QString bestMatch = "";
     double bestSimilarity = 0.0;
     QString secondBestMatch = "";
     double secondBestSimilarity = 0.0;
+    QString bestMatchHash = "";
+    QString secondBestMatchHash = "";
     
     // 与所有模板进行比较
-    for (auto it = recipeTemplateHistograms.begin(); it != recipeTemplateHistograms.end(); ++it) {
+    for (auto it = recipeTemplateHashes.begin(); it != recipeTemplateHashes.end(); ++it) {
         const QString& recipeType = it.key();
-        const QVector<double>& templateHistogram = it.value();
+        const QString& templateHash = it.value();
         
         // 计算相似度
-        double similarity = calculateColorHistogramSimilarity(recipeArea, recipeTemplateImages[recipeType]);
+        double similarity = calculateHashSimilarity(currentHash, templateHash);
         
-        qDebug() << "配方与" << recipeType << "的相似度:" << QString::number(similarity, 'f', 4);
+        qDebug() << "配方与" << recipeType << "的哈希相似度:" << QString::number(similarity, 'f', 4) 
+                 << "模板哈希:" << templateHash << "当前哈希:" << currentHash;
         
         // 更新最佳匹配和次佳匹配
         if (similarity > bestSimilarity) {
             secondBestSimilarity = bestSimilarity;
             secondBestMatch = bestMatch;
+            secondBestMatchHash = bestMatchHash;
             bestSimilarity = similarity;
             bestMatch = recipeType;
+            bestMatchHash = templateHash;
         } else if (similarity > secondBestSimilarity) {
             secondBestSimilarity = similarity;
             secondBestMatch = recipeType;
+            secondBestMatchHash = templateHash;
         }
     }
     
-    // 输出调试信息
-    qDebug() << "最佳匹配配方:" << bestMatch << "相似度:" << QString::number(bestSimilarity, 'f', 4);
-    qDebug() << "次佳匹配配方:" << secondBestMatch << "相似度:" << QString::number(secondBestSimilarity, 'f', 4);
-    
-    addLog(QString("最佳匹配配方: %1 (相似度: %2)").arg(bestMatch).arg(QString::number(bestSimilarity, 'f', 4)), LogType::Info);
-    addLog(QString("次佳匹配配方: %1 (相似度: %2)").arg(secondBestMatch).arg(QString::number(secondBestSimilarity, 'f', 4)), LogType::Info);
+    // 输出详细的匹配调试信息
+    qDebug() << "=== 配方识别结果详情 ===";
+    qDebug() << "当前配方哈希值:" << currentHash;
+    qDebug() << "最佳匹配配方:" << bestMatch << "相似度:" << QString::number(bestSimilarity, 'f', 4) << "哈希值:" << bestMatchHash;
+    qDebug() << "次佳匹配配方:" << secondBestMatch << "相似度:" << QString::number(secondBestSimilarity, 'f', 4) << "哈希值:" << secondBestMatchHash;
+    qDebug() << "=========================";
     
     return qMakePair(bestMatch, bestSimilarity);
 }
@@ -428,12 +484,12 @@ QList<QPair<QPoint, double>> RecipeRecognizer::findBestMatchesInGrid(const QImag
     QList<QPair<QPoint, double>> matches;
     
     if (!recipeTemplatesLoaded || !recipeTemplateImages.contains(targetRecipe)) {
-        addLog(QString("配方模板 %1 未加载").arg(targetRecipe), LogType::Error);
+        qDebug() << QString("配方模板 %1 未加载").arg(targetRecipe);
         return matches;
     }
     
     if (recipeArea.isNull()) {
-        addLog("配方区域图像无效", LogType::Error);
+        qDebug() << "配方区域图像无效";
         return matches;
     }
     
@@ -444,7 +500,7 @@ QList<QPair<QPoint, double>> RecipeRecognizer::findBestMatchesInGrid(const QImag
     const int cols = recipeArea.width() / gridSize;  // 365 / 49 ≈ 7列
     const int rows = recipeArea.height() / gridSize; // 200 / 49 ≈ 4行
     
-    addLog(QString("网格分割: %1行 x %2列").arg(rows).arg(cols), LogType::Info);
+    qDebug() << QString("网格分割: %1行 x %2列").arg(rows).arg(cols);
     
     // 遍历每个网格单元
     for (int row = 0; row < rows; ++row) {
@@ -458,13 +514,15 @@ QList<QPair<QPoint, double>> RecipeRecognizer::findBestMatchesInGrid(const QImag
             }
             
             // 计算与目标模板的相似度
-            double similarity = calculateColorHistogramSimilarity(gridImage, targetTemplate);
+            QString gridHash = calculateImageHash(gridImage);
+            QString targetHash = recipeTemplateHashes[targetRecipe];
+            double similarity = calculateHashSimilarity(gridHash, targetHash);
             
             // 记录网格位置和相似度
             QPoint gridPos(col, row);
             matches.append(qMakePair(gridPos, similarity));
             
-            qDebug() << QString("网格(%1,%2) 与模板%3的相似度: %4")
+            qDebug() << QString("网格(%1,%2) 与模板%3的哈希相似度: %4")
                         .arg(col).arg(row).arg(targetRecipe).arg(QString::number(similarity, 'f', 4));
         }
     }
@@ -475,20 +533,7 @@ QList<QPair<QPoint, double>> RecipeRecognizer::findBestMatchesInGrid(const QImag
                   return a.second > b.second;
               });
     
-    // 输出前两个最佳匹配
-    if (matches.size() >= 1) {
-        QPoint bestPos = matches[0].first;
-        double bestSimilarity = matches[0].second;
-        addLog(QString("最佳匹配: 网格(%1,%2) 相似度: %3")
-               .arg(bestPos.x()).arg(bestPos.y()).arg(QString::number(bestSimilarity, 'f', 4)), LogType::Success);
-    }
-    
-    if (matches.size() >= 2) {
-        QPoint secondPos = matches[1].first;
-        double secondSimilarity = matches[1].second;
-        addLog(QString("次佳匹配: 网格(%1,%2) 相似度: %3")
-               .arg(secondPos.x()).arg(secondPos.y()).arg(QString::number(secondSimilarity, 'f', 4)), LogType::Success);
-    }
+    // 匹配结果将通过saveMatchDebugImages输出
     
     return matches;
 }
@@ -496,7 +541,7 @@ QList<QPair<QPoint, double>> RecipeRecognizer::findBestMatchesInGrid(const QImag
 // 在网格中识别配方
 void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe, HWND hwndGame)
 {
-    addLog("开始配方识别...", LogType::Info);
+    qDebug() << "开始配方识别...";
     
     // 提取配方区域（385x200）
     QImage recipeArea = screenshot.copy(555, 88, 365, 200);
@@ -512,101 +557,26 @@ void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QSt
         QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
         QString recipeImagePath = debugDir + "/recipe_area_" + timestamp + ".png";
         if (recipeArea.save(recipeImagePath)) {
-            addLog(QString("配方区域图像已保存: %1").arg(recipeImagePath), LogType::Info);
+            qDebug() << QString("配方区域图像已保存: %1").arg(recipeImagePath);
         }
         
-        addLog(QString("选择匹配模板: %1").arg(targetRecipe), LogType::Info);
+        addLog(QString("选择匹配模板: %1").arg(targetRecipe));
         
         // 获取分割线坐标
         QVector<int> xLines, yLines;
         getRecipeGridLines(recipeArea, xLines, yLines);
-        addLog(QString("检测到横线y: %1, 纵线x: %2").arg(yLines.size()).arg(xLines.size()), LogType::Info);
+        addLog(QString("检测到横线y: %1, 纵线x: %2").arg(yLines.size()).arg(xLines.size()));
         
         // 执行配方识别
         auto startTime = std::chrono::high_resolution_clock::now();
-        QList<QPair<QPoint, double>> matches;
-        QImage targetTemplate = recipeTemplateImages[targetRecipe];
-        
-        // 定义配方识别的ROI区域：配方坐标(4,4)开始的宽度为38，高度24的区域
-        QRect recipeROI(4, 4, 38, 24);
-        
-        // 遍历所有格子
-        for (int row = 0; row + 1 < yLines.size(); ++row) {
-            for (int col = 0; col + 1 < xLines.size(); ++col) {
-                int x0 = xLines[col];
-                int y0 = yLines[row];
-                int w = xLines[col + 1] - x0;
-                int h = yLines[row + 1] - y0;
-                if (w <= 0 || h <= 0) continue;
-                QRect gridRect(x0, y0, w, h);
-                QImage gridImage = recipeArea.copy(gridRect);
-                if (gridImage.isNull()) continue;
-                
-                // 只使用配方ROI区域进行匹配
-                QImage gridROI = gridImage.copy(recipeROI);
-                if (gridROI.isNull()) continue;
-                
-                // 从模板中也提取对应的ROI区域进行比较
-                QImage templateROI = targetTemplate.copy(recipeROI);
-                if (templateROI.isNull()) continue;
-                
-                double similarity = calculateColorHistogramSimilarity(gridROI, templateROI);
-                matches.append(qMakePair(QPoint(x0, y0), similarity));
-            }
-        }
-        // 按相似度排序
-        std::sort(matches.begin(), matches.end(), [](const QPair<QPoint, double>& a, const QPair<QPoint, double>& b) { return a.second > b.second; });
+        QList<QPair<QPoint, double>> matches = performGridHashMatching(recipeArea, targetRecipe, xLines, yLines);
         auto endTime = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-        addLog(QString("配方识别耗时: %1 毫秒").arg(duration.count()), LogType::Info);
+        qDebug() << QString("配方识别耗时: %1 毫秒").arg(duration.count());
         
         // 保存最佳匹配的网格图像
-        if (!matches.isEmpty()) {
-            // 找到最佳和次佳匹配的格子索引
-            auto findGridRect = [&](const QPoint& pos) -> QRect {
-                int bestCol = -1, bestRow = -1;
-                for (int col = 0; col + 1 < xLines.size(); ++col) {
-                    if (xLines[col] == pos.x()) { bestCol = col; break; }
-                }
-                for (int row = 0; row + 1 < yLines.size(); ++row) {
-                    if (yLines[row] == pos.y()) { bestRow = row; break; }
-                }
-                if (bestCol >= 0 && bestRow >= 0) {
-                    int x0 = xLines[bestCol];
-                    int y0 = yLines[bestRow];
-                    int w = xLines[bestCol+1] - x0;
-                    int h = yLines[bestRow+1] - y0;
-                    return QRect(x0, y0, w, h);
-                }
-                return QRect();
-            };
-            QPoint bestPos = matches[0].first;
-            double bestSim = matches[0].second;
-            QRect bestGridRect = findGridRect(bestPos);
-            if (bestGridRect.isValid()) {
-                QImage bestGridImage = recipeArea.copy(bestGridRect);
-                // 保存原始完整网格图片
-                QString bestGridPath = debugDir + QString("/best_match_grid_%1_%2.png").arg(QString::number(bestSim, 'f', 4)).arg(timestamp);
-                if (bestGridImage.save(bestGridPath)) {
-                    addLog(QString("最佳匹配网格图像已保存: %1").arg(bestGridPath), LogType::Info);
-                    qDebug() << "[DEBUG] 最佳匹配图片路径:" << bestGridPath << " 匹配度:" << bestSim << " 耗时:" << duration.count() << "ms";
-                }
-            }
-            if (matches.size() >= 2) {
-                QPoint secondPos = matches[1].first;
-                double secondSim = matches[1].second;
-                QRect secondGridRect = findGridRect(secondPos);
-                if (secondGridRect.isValid()) {
-                    QImage secondGridImage = recipeArea.copy(secondGridRect);
-                    // 保存原始完整网格图片
-                    QString secondGridPath = debugDir + QString("/second_match_grid_%1_%2.png").arg(QString::number(secondSim, 'f', 4)).arg(timestamp);
-                    if (secondGridImage.save(secondGridPath)) {
-                        addLog(QString("次佳匹配网格图像已保存: %1").arg(secondGridPath), LogType::Info);
-                        qDebug() << "[DEBUG] 次佳匹配图片路径:" << secondGridPath << " 匹配度:" << secondSim << " 耗时:" << duration.count() << "ms";
-                    }
-                }
-            }
-        }
+        saveMatchDebugImages(matches, recipeArea, xLines, yLines, debugDir, timestamp, duration.count());
+        
         // 检查是否有相似度为1的配方，如果有则点击其中心位置
         if (!matches.isEmpty() && matches[0].second >= 1.0) {
             QPoint bestPos = matches[0].first;
@@ -622,7 +592,7 @@ void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QSt
             
             // 点击配方中心位置
             leftClickDPI(hwndGame, screenX, screenY);
-            addLog(QString("点击配方中心位置: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
+            qDebug() << QString("点击配方中心位置: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
         }
     }
 }
@@ -630,7 +600,15 @@ void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QSt
 // 带翻页功能的配方识别
 void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const QString& targetRecipe, HWND hwndGame)
 {
-    addLog("开始带翻页功能的配方识别...", LogType::Info);
+    qDebug() << "开始带翻页功能的配方识别...";
+    
+    // 确保输出目标配方模板的哈希值信息
+    if (recipeTemplateHashes.contains(targetRecipe)) {
+        qDebug() << QString("目标配方 %1 模板哈希: %2").arg(targetRecipe).arg(recipeTemplateHashes[targetRecipe]);
+    } else {
+        qDebug() << QString("警告: 目标配方 %1 模板未找到!").arg(targetRecipe);
+    }
+    
     // 配方区域参数
     const int recipeX = 555, recipeY = 88, recipeW = 365, recipeH = 200;
     const int recogH = 149; // 只识别上149像素
@@ -644,72 +622,20 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
         QVector<int> xLines, yLines;
         getRecipeGridLines(recognitionArea, xLines, yLines);
         auto startTime = std::chrono::high_resolution_clock::now();
-        QList<QPair<QPoint, double>> matches;
-        QImage targetTemplate = recipeTemplateImages[targetRecipe];
-        QRect recipeROI(4, 4, 38, 24);
-        for (int row = 0; row + 1 < yLines.size(); ++row) {
-            for (int col = 0; col + 1 < xLines.size(); ++col) {
-                int x0 = xLines[col];
-                int y0 = yLines[row];
-                int w = xLines[col + 1] - x0;
-                int h = yLines[row + 1] - y0;
-                if (w <= 0 || h <= 0) continue;
-                QRect gridRect(x0, y0, w, h);
-                QImage gridImage = recognitionArea.copy(gridRect);
-                if (gridImage.isNull()) continue;
-                QImage gridROI = gridImage.copy(recipeROI);
-                if (gridROI.isNull()) continue;
-                QImage templateROI = targetTemplate.copy(recipeROI);
-                if (templateROI.isNull()) continue;
-                double similarity = calculateColorHistogramSimilarity(gridROI, templateROI);
-                matches.append(qMakePair(QPoint(x0, y0), similarity));
-            }
-        }
-        std::sort(matches.begin(), matches.end(), [](const QPair<QPoint, double>& a, const QPair<QPoint, double>& b) { return a.second > b.second; });
+        
+        QList<QPair<QPoint, double>> matches = performGridHashMatching(recognitionArea, targetRecipe, xLines, yLines);
+        
         auto endTime = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
         
-        // 保存最大和次大相似度图片
-        auto findGridRect = [&](const QPoint& pos) -> QRect {
-            int bestCol = -1, bestRow = -1;
-            for (int col = 0; col + 1 < xLines.size(); ++col) if (xLines[col] == pos.x()) { bestCol = col; break; }
-            for (int row = 0; row + 1 < yLines.size(); ++row) if (yLines[row] == pos.y()) { bestRow = row; break; }
-            if (bestCol >= 0 && bestRow >= 0) {
-                int x0 = xLines[bestCol], y0 = yLines[bestRow];
-                int w = xLines[bestCol+1] - x0, h = yLines[bestRow+1] - y0;
-                return QRect(x0, y0, w, h);
-            }
-            return QRect();
-        };
-        if (!matches.isEmpty()) {
-            QPoint bestPos = matches[0].first; double bestSim = matches[0].second;
-            QRect bestGridRect = findGridRect(bestPos);
-            if (bestGridRect.isValid()) {
-                QImage bestGridImage = recipeArea.copy(bestGridRect);
-                QString bestGridPath = debugDir + QString("/best_match_grid_%1_%2.png").arg(QString::number(bestSim, 'f', 4)).arg(timestamp);
-                if (bestGridImage.save(bestGridPath)) {
-                    addLog(QString("最佳匹配网格图像已保存: %1").arg(bestGridPath), LogType::Info);
-                    qDebug() << "[DEBUG] 最佳匹配图片路径:" << bestGridPath << " 匹配度:" << bestSim << " 耗时:" << duration.count() << "ms";
-                }
-            }
-            if (matches.size() >= 2) {
-                QPoint secondPos = matches[1].first; double secondSim = matches[1].second;
-                QRect secondGridRect = findGridRect(secondPos);
-                if (secondGridRect.isValid()) {
-                    QImage secondGridImage = recipeArea.copy(secondGridRect);
-                    QString secondGridPath = debugDir + QString("/second_match_grid_%1_%2.png").arg(QString::number(secondSim, 'f', 4)).arg(timestamp);
-                    if (secondGridImage.save(secondGridPath)) {
-                        addLog(QString("次佳匹配网格图像已保存: %1").arg(secondGridPath), LogType::Info);
-                        qDebug() << "[DEBUG] 次佳匹配图片路径:" << secondGridPath << " 匹配度:" << secondSim << " 耗时:" << duration.count() << "ms";
-                    }
-                }
-            }
-        }
+        // 保存调试图像
+        saveMatchDebugImages(matches, recipeArea, xLines, yLines, debugDir, timestamp, duration.count());
+        
         return matches;
     };
 
     // 步骤1: 先识别当前页面的配方
-    addLog("先识别当前页面的配方...", LogType::Info);
+            qDebug() << "先识别当前页面的配方...";
     QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
     QList<QPair<QPoint, double>> currentMatches = recognizeOnePage(screenshot, timestamp);
     
@@ -721,30 +647,30 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
             int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
             int screenX = recipeX + centerX, screenY = recipeY + centerY;
             leftClickDPI(hwndGame, screenX, screenY);
-            addLog(QString("在当前页面找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
+            qDebug() << QString("在当前页面找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
             return;
         }
     }
     
     // 步骤2: 当前页面没找到，翻到顶部重新识别
-    addLog("当前页面未找到配方，翻到顶部重新识别...", LogType::Info);
+            qDebug() << "当前页面未找到配方，翻到顶部重新识别...";
     // 翻到顶
-    addLog("翻到顶...", LogType::Info);
+            qDebug() << "翻到顶...";
     // 修正：点击配方区域内的(355, 20)（相对于全屏为(555+355, 88+20)）
     int clickTopX = recipeX + 355;
     int clickTopY = recipeY + 20;
     leftClickDPI(hwndGame, clickTopX, clickTopY);
-    addLog(QString("[翻页] 点击配方区域顶部: 全屏坐标(%1, %2)").arg(clickTopX).arg(clickTopY), LogType::Info);
+            qDebug() << QString("[翻页] 点击配方区域顶部: 全屏坐标(%1, %2)").arg(clickTopX).arg(clickTopY);
     qDebug() << "[翻页] 点击配方区域顶部: 全屏坐标(" << clickTopX << "," << clickTopY << ")";
-    sleepByQElapsedTimer(500);
+    sleepByQElapsedTimer(300);
 
     // 翻页到顶部后，重新截取游戏窗口
     QImage topScreenshot = captureWindowByHandle(hwndGame,"主页面");
     if (topScreenshot.isNull()) {
-        addLog("翻页到顶部后截图失败", LogType::Error);
+        qDebug() << "翻页到顶部后截图失败";
         return;
     }
-    addLog("翻页到顶部后重新截取游戏窗口", LogType::Info);
+            qDebug() << "翻页到顶部后重新截取游戏窗口";
 
     QString timestamp2 = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
     QList<QPair<QPoint, double>> matches = recognizeOnePage(topScreenshot, timestamp2);
@@ -758,27 +684,27 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
             int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
             int screenX = recipeX + centerX, screenY = recipeY + centerY;
             leftClickDPI(hwndGame, screenX, screenY);
-            addLog(QString("找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
+            qDebug() << QString("找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
             return;
         }
     }
     
     // 翻页查找
     if (!foundRecipe) {
-        addLog("开始翻页查找配方...", LogType::Info);
-        int pageCount = 0, maxPages = 10;
+        qDebug() << "开始翻页查找配方...";
+        int pageCount = 0, maxPages = 21;
         while (pageCount < maxPages) {
             // 修正：点击配方区域内的(355, 190)（相对于全屏为(555+355, 88+190)）
             int clickPageX = recipeX + 355;
             int clickPageY = recipeY + 190;
             leftClickDPI(hwndGame, clickPageX, clickPageY);
-            addLog(QString("[翻页] 点击配方区域底部: 全屏坐标(%1, %2)").arg(clickPageX).arg(clickPageY), LogType::Info);
+            qDebug() << QString("[翻页] 点击配方区域底部: 全屏坐标(%1, %2)").arg(clickPageX).arg(clickPageY);
             qDebug() << "[翻页] 点击配方区域底部: 全屏坐标(" << clickPageX << "," << clickPageY << ")";
-            sleepByQElapsedTimer(500);
+            sleepByQElapsedTimer(300);
             pageCount++;
-            addLog(QString("翻到第 %1 页").arg(pageCount), LogType::Info);
+            qDebug() << QString("翻到第 %1 页").arg(pageCount);
             QImage newScreenshot = captureWindowByHandle(hwndGame,"主页面");
-            if (newScreenshot.isNull()) { addLog("截图失败", LogType::Error); break; }
+            if (newScreenshot.isNull()) { qDebug() << "截图失败"; break; }
             QString timestamp3 = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
             QList<QPair<QPoint, double>> newMatches = recognizeOnePage(newScreenshot, timestamp3);
             if (!newMatches.isEmpty() && newMatches[0].second >= 1.0) {
@@ -788,12 +714,12 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
                     int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
                     int screenX = recipeX + centerX, screenY = recipeY + centerY;
                     leftClickDPI(hwndGame, screenX, screenY);
-                    addLog(QString("在第 %1 页找到配方并点击: (%2, %3), 相似度: %4").arg(pageCount).arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4)), LogType::Success);
+                    qDebug() << QString("在第 %1 页找到配方并点击: (%2, %3), 相似度: %4").arg(pageCount).arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
                     return;
                 }
             }
         }
-        addLog("翻页完成，未找到目标配方", LogType::Warning);
+        qDebug() << "翻页完成，未找到目标配方";
     }
 }
 
