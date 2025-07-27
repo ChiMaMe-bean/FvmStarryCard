@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>images/position/(94,260)卡片制作.png</file>
+        <file>images/position/(94,326)卡片强化.png</file>
+        <file>images/position/(178,96)排行.png</file>
+        <file>images/position/(675,556)合成屋外.png</file>
+        <file>images/position/enhanceButtonReady.png</file>
+        <file>images/position/enhanceScrollBottom.png</file>
+        <file>images/position/enhanceScrollTop.png</file>
+        <file>images/position/healthyTip.png</file>
+        <file>images/position/insuranceEmpty.png</file>
+        <file>images/position/line.png</file>
+        <file>images/position/mainCardEmpty.png</file>
+        <file>images/position/PageDown.png</file>
+        <file>images/position/PageUp.png</file>
+        <file>images/position/subCardEmpty.png</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>images/icons/downArrow.svg</file>
+        <file>images/icons/downarrow_1f.svg</file>
+        <file>images/icons/icon128.ico</file>
+        <file>images/icons/icon256.ico</file>
+        <file>images/icons/icon512.ico</file>
+        <file>images/icons/uparrow_1f.svg</file>
+        <file>images/icons/制卡方案.svg</file>
+        <file>images/icons/勾选.svg</file>
+        <file>images/icons/强化方案.svg</file>
+        <file>images/icons/强化日志.svg</file>
+        <file>images/icons/强化统计.svg</file>
+    </qresource>
+</RCC>

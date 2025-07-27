@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>images/bind_state/card_bind.png</file>
+        <file>images/bind_state/clover_bound.png</file>
+    </qresource>
+</RCC>

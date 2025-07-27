@@ -1,6 +1,0 @@
-<?xml version="1.0" ?>
-<RCC version="1.0">
-    <qresource prefix="/">
-        <file>items/gameImage/SyntheticHouse.png</file>
-    </qresource>
-</RCC>

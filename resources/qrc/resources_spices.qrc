@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>images/spices/上等香料.png</file>
+        <file>images/spices/圣灵香料.png</file>
+        <file>images/spices/天使香料.png</file>
+        <file>images/spices/天然香料.png</file>
+        <file>images/spices/极品香料.png</file>
+        <file>images/spices/永久保鲜袋.png</file>
+        <file>images/spices/皇室香料.png</file>
+        <file>images/spices/秘制香料.png</file>
+        <file>images/spices/精灵香料.png</file>
+        <file>images/spices/魔幻香料.png</file>
+    </qresource>
+</RCC>

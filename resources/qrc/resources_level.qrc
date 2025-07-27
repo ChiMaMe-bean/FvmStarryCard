@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='utf-8'?>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>images/level/1.png</file>
+        <file>images/level/2.png</file>
+        <file>images/level/3.png</file>
+        <file>images/level/4.png</file>
+        <file>images/level/5.png</file>
+        <file>images/level/6.png</file>
+        <file>images/level/7.png</file>
+        <file>images/level/8.png</file>
+        <file>images/level/9.png</file>
+        <file>images/level/10.png</file>
+        <file>images/level/11.png</file>
+        <file>images/level/12.png</file>
+        <file>images/level/13.png</file>
+        <file>images/level/14.png</file>
+        <file>images/level/15.png</file>
+        <file>images/level/16.png</file>
+    </qresource>
+</RCC>
