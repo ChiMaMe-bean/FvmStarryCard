@@ -5499,6 +5499,13 @@ void StarryCard::saveSpiceConfig()
         "魔幻香料", "精灵香料", "天使香料", "圣灵香料"
     };
     
+    // 添加边界检查
+    int maxRows = qMin(9, spiceTypes.size());
+    for (int row = 0; row < maxRows; ++row) {
+        if (row >= spiceTypes.size()) {
+            qWarning() << "saveSpiceConfig: spiceTypes索引越界，跳过行" << row;
+            break;
+        }
         QJsonObject spiceObj;
         spiceObj["name"] = spiceTypes[row];
         

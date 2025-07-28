@@ -87,6 +87,3 @@ Thumbs.db
 # 包管理
 conan.lock
 conanbuildinfo.*
-
-# Local CMake configuration
-local.cmake 
