@@ -1495,7 +1495,7 @@ void StarryCard::onCaptureAndRecognize()
         QImage screenshotScrollBar = captureWindowByHandle(hwndGame,"主页面");
 
         int length = getLengthOfScrollBar(screenshotScrollBar);
-        int scrollOnceLength = (length *7 /8) + 1;
+        int scrollOnceLength = (length * 7 /8) + 2;
         if(length > 0)
         {
             addLog(QString("滚动条长度: %1").arg(length), LogType::Success);
@@ -1508,6 +1508,8 @@ void StarryCard::onCaptureAndRecognize()
         QRect cardAreaRoi = QRect(559, 91, 343, 456);
         QString appDir = QCoreApplication::applicationDirPath();
         QString screenshotsDir = appDir + "/screenshots";
+        int position = getPositionOfScrollBar(screenshot);
+        addLog(QString("初始滚动条位置: %1").arg(position), LogType::Success);
         for(int i = 0; i < 10; i++)
         {
             QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
@@ -1519,7 +1521,19 @@ void StarryCard::onCaptureAndRecognize()
                 break;
             }
             fastMouseDrag(ENHANCE_SCROLL_TOP.x(), ENHANCE_SCROLL_TOP.y() + i * length, scrollOnceLength, true);
-            sleepByQElapsedTimer(500);
+            int j = 0;
+            while(j < 100)
+            {
+                sleepByQElapsedTimer(50);
+                QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
+                if(getPositionOfScrollBar(screenshot) != position)
+                {
+                    position = getPositionOfScrollBar(screenshot);
+                    break;
+                }
+                j++;
+            }
+            addLog(QString("滚动条位置: %1").arg(position), LogType::Success);
         }
         
     }
@@ -2708,7 +2722,7 @@ QStringList StarryCard::getRequiredCardTypesFromConfig()
     
     // 遍历所有等级的配置
     for (int row = minLevel; row <= maxLevel; ++row) {
-        QString levelKey = QString("%1-%2").arg(row).arg(row + 1);
+        QString levelKey = QString("%1-%2").arg(row - 1).arg(row);
         if (!config.contains(levelKey)) continue;
         
         QJsonObject levelConfig = config[levelKey].toObject();
@@ -5643,7 +5657,8 @@ void EnhancementWorker::performEnhancement()
         cardVector = m_parent->cardRecognizer->recognizeCards(screenshot, cardTypesCopy);
         if (cardVector.empty())
         {
-            emit logMessage("未找到目标卡片", LogType::Error);
+            m_parent->isEnhancing = false;
+            emit logMessage("未找到目标卡片，强化已停止！", LogType::Error);
             break;
         }
 
@@ -5911,7 +5926,7 @@ BOOL StarryCard::resetScrollBar()
 // 获取滚动条长度
 int StarryCard::getLengthOfScrollBar(QImage screenshot)
 {
-    if(screenshot.width() < 950 && screenshot.height() < 596)
+    if(screenshot.width() < 950 || screenshot.height() < 596)
     {
         qDebug() << "截图尺寸异常，无法获取滚动条长度";
         return 0;
@@ -5932,4 +5947,24 @@ int StarryCard::getLengthOfScrollBar(QImage screenshot)
     return 0;
 }
 
+int StarryCard::getPositionOfScrollBar(QImage screenshot)
+{
+    if(screenshot.width() < 950 || screenshot.height() < 596)
+    {
+        qDebug() << "截图尺寸异常，无法获取滚动条长度";
+        return 0;
+    }
 
+    // 目标颜色 #0A486F (RGB: 10, 72, 111)
+    QColor targetColor(10, 72, 111);
+    int targetRgb = targetColor.rgb();
+
+    for(int i = 0; i < 450; i++)
+    {
+        QColor pixelColor = screenshot.pixelColor(903, 108 + i);
+        if(pixelColor.rgb() != targetRgb)
+        {
+            return i;
+        }
+    }
+}

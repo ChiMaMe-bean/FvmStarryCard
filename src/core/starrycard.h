@@ -404,6 +404,7 @@ private:
     void fastMouseDrag(int startX, int startY, int distance, bool downward = true);
     BOOL resetScrollBar();
     int getLengthOfScrollBar(QImage screenshot);
+    int getPositionOfScrollBar(QImage screenshot);
 
     // 位置模板相关数据
     QHash<QString, QString> positionTemplateHashes; // 位置模板名称 -> 哈希值
