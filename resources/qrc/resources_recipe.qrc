@@ -1,10 +1,10 @@
 <?xml version='1.0' encoding='utf-8'?>
 <RCC version="1.0">
     <qresource prefix="/">
-        <file>images/recipe/1.png</file>
         <file>images/recipe/2.png</file>
         <file>images/recipe/3.png</file>
         <file>images/recipe/4.png</file>
+        <file>images/recipe/好卡：巧克力面包.png</file>
         <file>images/recipe/怪味鱿鱼.bmp</file>
     </qresource>
 </RCC>
