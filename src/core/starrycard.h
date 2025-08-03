@@ -81,7 +81,7 @@ signals:
 private:
     StarryCard* m_parent;
     void performEnhancement();
-    BOOL performEnhancementOnce(const std::vector<CardInfo>& cardVector);
+    BOOL performEnhancementOnce(const QVector<CardInfo>& cardVector);
     void threadSafeSleep(int ms);
 };
 
@@ -236,7 +236,7 @@ private:
     void updateCurrentBgLabel();
     QImage captureWindowByHandle(HWND hwnd, const QString& windowName = "");
     QImage captureImageRegion(const QImage& sourceImage, const QRect& rect, const QString& filename = "");
-    void showRecognitionResults(const std::vector<CardInfo>& results);
+    void showRecognitionResults(const QVector<CardInfo>& results);
     QWidget* createEnhancementConfigPage();
     QWidget* createSpiceConfigPage();
     int getMinSubCardLevel(int enhancementLevel);
@@ -411,6 +411,7 @@ private:
     void fastMouseDrag(int startX, int startY, int distance, bool downward = true);
     BOOL resetScrollBar();
     int getLengthOfScrollBar(QImage screenshot);
+    int getPositionOfScrollBar(QImage screenshot);
 
     // 位置模板相关数据
     QHash<QString, QString> positionTemplateHashes; // 位置模板名称 -> 哈希值

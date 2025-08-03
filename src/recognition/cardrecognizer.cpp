@@ -279,9 +279,9 @@ QPoint CardRecognizer::calculateCardCenterPosition(int row, int col) const
     return QPoint(windowX, windowY);
 }
 
-std::vector<CardInfo> CardRecognizer::recognizeCards(const QImage& screenshot, const QStringList& targetCardTypes)
+QVector<CardInfo> CardRecognizer::recognizeCards(const QImage& screenshot, const QStringList& targetCardTypes)
 {
-    std::vector<CardInfo> results;
+    QVector<CardInfo> results;
     auto startTime = std::chrono::high_resolution_clock::now();
     
     // qDebug() << "识别目标卡片类型:" << targetCardTypes.size() << "种";
