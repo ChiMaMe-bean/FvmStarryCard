@@ -563,7 +563,7 @@ void StarryCard::setupUI()
     rightLayout->addWidget(debugLabel);
     
     debugCombo = new QComboBox();
-    debugCombo->addItems({"滚动条测试", "配方识别", "卡片识别", "四叶草识别", "香料识别", "刷新测试", "全部功能"});
+    debugCombo->addItems({"滚动条测试", "配方识别", "卡片识别", "四叶草识别", "香料识别", "刷新测试", "制卡测试", "全部功能"});
     debugCombo->setCurrentText("滚动条测试"); // 设置默认选择
     debugCombo->setStyleSheet(R"(
         QComboBox {
@@ -1661,6 +1661,12 @@ void StarryCard::onCaptureAndRecognize()
         sleepByQElapsedTimer(4000); // 等待4秒
 
         closeHealthTip();
+    }
+    
+    if (debugMode == "制卡测试") {
+        // 执行制卡测试功能
+        addLog("开始制卡测试...", LogType::Info);
+        performCardMaking();
     }
     
     addLog(QString("调试功能 '%1' 执行完成").arg(debugMode), LogType::Success);
@@ -3359,6 +3365,24 @@ QVector<double> StarryCard::calculateColorHistogram(const QImage& image, const Q
     }
     
     return histogram;
+}
+
+double StarryCard::calculateHashSimilarity(const QString& hash1, const QString& hash2)
+{
+    if (hash1.length() != hash2.length() || hash1.isEmpty()) {
+        return 0.0;
+    }
+    
+    int hammingDistance = 0;
+    for (int i = 0; i < hash1.length(); ++i) {
+        if (hash1[i] != hash2[i]) {
+            hammingDistance++;
+        }
+    }
+    
+    // 将汉明距离转换为相似度 (0-1之间)
+    double similarity = 1.0 - (static_cast<double>(hammingDistance) / hash1.length());
+    return similarity;
 }
 
 double StarryCard::calculateColorHistogramSimilarity(const QImage& image1, const QImage& image2, const QRect& roi)
@@ -5930,6 +5954,376 @@ int StarryCard::getLengthOfScrollBar(QImage screenshot)
         }
     }
     return 0;
+}
+
+// ================== 制卡功能实现 ==================
+
+QStringList StarryCard::getSelectedSpices()
+{
+    if (!spiceTable) {
+        addLog("香料配置表格未初始化", LogType::Error);
+        return QStringList();
+    }
+    
+    // 香料优先级顺序（从高到低）
+    QStringList spicePriorityOrder = {
+        "圣灵香料", "天使香料", "精灵香料", "魔幻香料", "皇室香料",
+        "极品香料", "秘制香料", "上等香料", "天然香料"
+    };
+    
+    // 表格中的香料顺序
+    QStringList tableSpiceOrder = {
+        "天然香料", "上等香料", "秘制香料", "极品香料", "皇室香料",
+        "魔幻香料", "精灵香料", "天使香料", "圣灵香料"
+    };
+    
+    QStringList selectedSpices;
+    
+    // 检查每个香料是否被勾选
+    for (int row = 0; row < 9 && row < tableSpiceOrder.size(); ++row) {
+        // 获取"是否使用"状态（第1列）
+        QWidget* useWidget = spiceTable->cellWidget(row, 1);
+        bool used = false;
+        if (useWidget) {
+            QCheckBox* useCheckBox = useWidget->findChild<QCheckBox*>();
+            if (useCheckBox) {
+                used = useCheckBox->isChecked();
+            }
+        }
+        
+        if (used) {
+            selectedSpices.append(tableSpiceOrder[row]);
+        }
+    }
+    
+    // 按优先级排序
+    QStringList sortedSelectedSpices;
+    for (const QString& prioritySpice : spicePriorityOrder) {
+        if (selectedSpices.contains(prioritySpice)) {
+            sortedSelectedSpices.append(prioritySpice);
+        }
+    }
+    
+    addLog(QString("已选择香料（按优先级排序）: %1").arg(sortedSelectedSpices.join(", ")), LogType::Info);
+    return sortedSelectedSpices;
+}
+
+bool StarryCard::recognizeMakeButton()
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，无法识别制作按钮", LogType::Error);
+        return false;
+    }
+    
+    // 截取游戏窗口
+    QImage screenshot = captureWindowByHandle(hwndGame, "制作按钮识别");
+    if (screenshot.isNull()) {
+        addLog("截取游戏窗口失败", LogType::Error);
+        return false;
+    }
+    
+    // 截取制作按钮区域：以(260,416)为左顶点，20*20区域
+    QRect buttonArea(260, 416, 20, 20);
+    QImage buttonImage = screenshot.copy(buttonArea);
+    
+    addLog(QString("制作按钮截图尺寸: %1x%2, 按钮区域: (%3,%4) %5x%6")
+           .arg(screenshot.width()).arg(screenshot.height())
+           .arg(buttonArea.x()).arg(buttonArea.y())
+           .arg(buttonArea.width()).arg(buttonArea.height()), LogType::Info);
+    
+    if (buttonImage.isNull()) {
+        addLog("截取制作按钮区域失败", LogType::Error);
+        return false;
+    }
+    
+    // 创建调试文件夹并保存按钮图像
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString debugDir = appDir + "/debug_recipe";
+    QDir dir(debugDir);
+    if (!dir.exists()) {
+        dir.mkpath(debugDir);
+    }
+    
+    // 生成时间戳
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+    
+    // 保存制作按钮区域图像
+    QString buttonImagePath = debugDir + QString("/make_button_%1.png").arg(timestamp);
+    if (buttonImage.save(buttonImagePath)) {
+        addLog(QString("制作按钮图像已保存: %1").arg(buttonImagePath), LogType::Info);
+    }
+    
+    // 加载模板图片并计算哈希值
+    QImage makeTemplate(":/images/position/(260,416)制作.png");
+    QImage makeBrightTemplate(":/images/position/(260,416)制作亮.png");
+    
+    if (makeTemplate.isNull() || makeBrightTemplate.isNull()) {
+        addLog("加载制作按钮模板失败", LogType::Error);
+        return false;
+    }
+    
+    // 保存模板图像以供对比
+    QString makeTemplatePath = debugDir + QString("/make_template_normal_%1.png").arg(timestamp);
+    QString makeBrightTemplatePath = debugDir + QString("/make_template_bright_%1.png").arg(timestamp);
+    makeTemplate.save(makeTemplatePath);
+    makeBrightTemplate.save(makeBrightTemplatePath);
+    
+    // 计算当前按钮图像的哈希值
+    QString currentHash = calculateImageHash(buttonImage);
+    QString makeHash = calculateImageHash(makeTemplate);
+    QString makeBrightHash = calculateImageHash(makeBrightTemplate);
+    
+    // 计算相似度
+    double makeSimilarity = calculateHashSimilarity(currentHash, makeHash);
+    double makeBrightSimilarity = calculateHashSimilarity(currentHash, makeBrightHash);
+    
+    addLog(QString("制作按钮识别结果 - 普通按钮相似度: %1, 亮按钮相似度: %2")
+           .arg(makeSimilarity, 0, 'f', 4).arg(makeBrightSimilarity, 0, 'f', 4), LogType::Info);
+    addLog(QString("制作按钮哈希值 - 当前: %1, 普通模板: %2, 亮模板: %3")
+           .arg(currentHash).arg(makeHash).arg(makeBrightHash), LogType::Info);
+    
+    // 如果任一模板相似度大于0.8，则认为识别成功
+    bool recognized = (makeSimilarity > 0.8 || makeBrightSimilarity > 0.8);
+    
+    if (recognized) {
+        addLog("制作按钮识别成功", LogType::Success);
+    } else {
+        addLog("制作按钮识别失败", LogType::Error);
+        addLog(QString("调试信息: 按钮图像大小=%1x%2, 保存路径=%3")
+               .arg(buttonImage.width()).arg(buttonImage.height()).arg(buttonImagePath), LogType::Info);
+    }
+    
+    return recognized;
+}
+
+bool StarryCard::verifyRecipeTemplate(const QString& targetRecipe)
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，无法验证配方模板", LogType::Error);
+        return false;
+    }
+    
+    // 截取游戏窗口
+    QImage screenshot = captureWindowByHandle(hwndGame, "配方模板验证");
+    if (screenshot.isNull()) {
+        addLog("截取游戏窗口失败", LogType::Error);
+        return false;
+    }
+    
+    // 截取验证区域：(268,344,38,24) - 这就是我们要验证的ROI区域
+    QRect verifyROIArea(268, 344, 38, 24);
+    QImage verifyROI = screenshot.copy(verifyROIArea);
+    
+    addLog(QString("截图尺寸: %1x%2, 验证ROI区域: (%3,%4) %5x%6")
+           .arg(screenshot.width()).arg(screenshot.height())
+           .arg(verifyROIArea.x()).arg(verifyROIArea.y())
+           .arg(verifyROIArea.width()).arg(verifyROIArea.height()), LogType::Info);
+    
+    if (verifyROI.isNull()) {
+        addLog("截取配方验证ROI区域失败", LogType::Error);
+        return false;
+    }
+    
+    // 创建调试文件夹并保存验证图像
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString debugDir = appDir + "/debug_recipe";
+    QDir dir(debugDir);
+    if (!dir.exists()) {
+        if (!dir.mkpath(debugDir)) {
+            addLog("创建调试文件夹失败: " + debugDir, LogType::Warning);
+        } else {
+            addLog("创建调试文件夹: " + debugDir, LogType::Info);
+        }
+    }
+    
+    // 生成时间戳
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+    
+    // 保存验证ROI区域图像
+    QString verifyROIPath = debugDir + QString("/verify_roi_%1_%2.png").arg(targetRecipe).arg(timestamp);
+    if (verifyROI.save(verifyROIPath)) {
+        addLog(QString("验证ROI区域图像已保存: %1").arg(verifyROIPath), LogType::Info);
+    }
+    
+    // 保存完整截图以供参考
+    QString fullScreenPath = debugDir + QString("/full_screen_%1_%2.png").arg(targetRecipe).arg(timestamp);
+    if (screenshot.save(fullScreenPath)) {
+        addLog(QString("完整截图已保存: %1").arg(fullScreenPath), LogType::Info);
+    }
+    
+    // 使用配方识别器进行比较
+    if (!recipeRecognizer->isRecipeTemplatesLoaded()) {
+        addLog("配方模板未加载，无法进行验证", LogType::Error);
+        return false;
+    }
+    
+    // 获取目标配方模板并提取相同的ROI区域
+    const QMap<QString, QImage>& templateImages = recipeRecognizer->getRecipeTemplateImages();
+    if (!templateImages.contains(targetRecipe)) {
+        addLog(QString("目标配方 '%1' 的模板不存在").arg(targetRecipe), LogType::Error);
+        return false;
+    }
+    
+    QImage targetTemplate = templateImages[targetRecipe];
+    
+    // 从模板中提取ROI区域 (4,4,38,24)
+    const QRect RECIPE_ROI(4, 4, 38, 24); // 与RecipeRecognizer中定义相同的ROI
+    QImage templateROI = targetTemplate.copy(RECIPE_ROI);
+    
+    if (templateROI.isNull()) {
+        addLog("截取模板ROI区域失败", LogType::Error);
+        return false;
+    }
+    
+    // 保存模板ROI图像以供对比
+    QString templateROIPath = debugDir + QString("/template_roi_%1_%2.png").arg(targetRecipe).arg(timestamp);
+    if (templateROI.save(templateROIPath)) {
+        addLog(QString("模板ROI图像已保存: %1").arg(templateROIPath), LogType::Info);
+    }
+    
+    // 计算ROI区域的哈希值并比较
+    QString verifyHash = calculateImageHash(verifyROI);
+    QString templateHash = calculateImageHash(templateROI);
+    double similarity = calculateHashSimilarity(verifyHash, templateHash);
+    
+    addLog(QString("配方模板验证 - 目标配方: %1, 相似度: %2")
+           .arg(targetRecipe).arg(similarity, 0, 'f', 4), LogType::Info);
+    addLog(QString("验证ROI尺寸: %1x%2, 模板ROI尺寸: %3x%4")
+           .arg(verifyROI.width()).arg(verifyROI.height())
+           .arg(templateROI.width()).arg(templateROI.height()), LogType::Info);
+    
+    // 检查相似度是否大于0.8
+    bool verified = (similarity > 0.8);
+    
+    if (verified) {
+        addLog("配方模板验证成功", LogType::Success);
+    } else {
+        addLog("配方模板验证失败，相似度不足", LogType::Error);
+        addLog(QString("哈希值 - 验证: %1, 模板: %2").arg(verifyHash).arg(templateHash), LogType::Info);
+    }
+    
+    return verified;
+}
+
+void StarryCard::performCardMaking()
+{
+    addLog("开始执行制卡流程", LogType::Info);
+    
+    // 步骤1: 检查游戏窗口
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，制卡流程终止", LogType::Error);
+        return;
+    }
+    
+    // 步骤1.5: 确保DPI和RecipeRecognizer参数正确设置（修复缩放问题）
+    addLog("初始化制卡参数...", LogType::Info);
+    if (!recipeRecognizer->isRecipeTemplatesLoaded()) {
+        if (!recipeRecognizer->loadRecipeTemplates()) {
+            addLog("配方模板加载失败，制卡流程终止", LogType::Error);
+            return;
+        }
+    }
+    
+    // 设置RecipeRecognizer的参数以确保缩放正确
+    recipeRecognizer->setDPI(DPI);
+    recipeRecognizer->setGameWindow(hwndGame);
+    addLog(QString("已设置制卡参数 - DPI: %1, 游戏窗口句柄: %2").arg(DPI).arg(reinterpret_cast<quintptr>(hwndGame)), LogType::Info);
+    
+    // 步骤2: 获取选择的配方
+    QString targetRecipe;
+    if (recipeCombo && recipeCombo->isEnabled() && recipeCombo->currentText() != "无可用配方") {
+        targetRecipe = recipeCombo->currentText();
+        addLog(QString("选择的配方类型: %1").arg(targetRecipe), LogType::Info);
+    } else {
+        addLog("未选择配方类型，制卡流程终止", LogType::Error);
+        return;
+    }
+    
+    // 步骤3: 配方识别和点击
+    addLog("开始配方识别...", LogType::Info);
+    recipeRecognizer->recognizeRecipeWithPaging(captureWindowByHandle(hwndGame, "制卡配方识别"), targetRecipe, hwndGame);
+    sleepByQElapsedTimer(1000); // 等待配方点击完成
+    
+    // 步骤4: 验证配方模板匹配
+    addLog("验证配方模板匹配...", LogType::Info);
+    
+    // 等待一段时间确保页面稳定，然后再验证
+    sleepByQElapsedTimer(500);
+    
+    if (!verifyRecipeTemplate(targetRecipe)) {
+        addLog("配方模板验证失败，制卡流程终止", LogType::Error);
+        return;
+    }
+    
+    // 步骤5: 识别制作按钮
+    addLog("识别制作按钮...", LogType::Info);
+    if (!recognizeMakeButton()) {
+        addLog("制作按钮识别失败，制卡流程终止", LogType::Error);
+        return;
+    }
+    
+    // 步骤6: 获取选择的香料
+    QStringList selectedSpices = getSelectedSpices();
+    if (selectedSpices.isEmpty()) {
+        addLog("未选择任何香料，将直接制作无香料卡片", LogType::Warning);
+        selectedSpices.append("无香料");
+    }
+    
+    // 步骤7: 计算每种香料的点击次数
+    const int totalClicks = 12;
+    int spiceCount = selectedSpices.size();
+    int clicksPerSpice = totalClicks / spiceCount;
+    int remainingClicks = totalClicks % spiceCount;
+    
+    addLog(QString("制卡参数 - 总点击次数: %1, 香料种类: %2, 每种香料点击: %3次, 余数: %4")
+           .arg(totalClicks).arg(spiceCount).arg(clicksPerSpice).arg(remainingClicks), LogType::Info);
+    
+    // 步骤8: 执行制卡流程
+    for (int i = 0; i < selectedSpices.size(); ++i) {
+        const QString& spiceType = selectedSpices[i];
+        int currentSpiceClicks = clicksPerSpice;
+        
+        // 如果有余数，前几种香料多点击一次
+        if (i < remainingClicks) {
+            currentSpiceClicks++;
+        }
+        
+        if (spiceType == "无香料") {
+            // 无香料直接点击制作按钮
+            addLog(QString("制作无香料卡片，点击制作按钮 %1 次").arg(currentSpiceClicks), LogType::Info);
+            for (int click = 0; click < currentSpiceClicks; ++click) {
+                leftClickDPI(hwndGame, 285, 425);
+                sleepByQElapsedTimer(500); // 改成500ms间隔
+                addLog(QString("第 %1 次制作点击完成").arg(click + 1), LogType::Info);
+            }
+        } else {
+            // 选择香料并点击制作
+            addLog(QString("选择香料: %1，点击制作按钮 %2 次").arg(spiceType).arg(currentSpiceClicks), LogType::Info);
+            
+            // 识别并点击香料
+            QPair<bool, bool> spiceResult = recognizeSpice(spiceType, false, true); // 接受绑定和未绑定
+            if (!spiceResult.first) {
+                addLog(QString("香料 '%1' 识别失败，跳过").arg(spiceType), LogType::Warning);
+                continue;
+            }
+            
+            sleepByQElapsedTimer(500); // 等待香料选择完成
+            
+            // 点击制作按钮
+            for (int click = 0; click < currentSpiceClicks; ++click) {
+                leftClickDPI(hwndGame, 285, 425);
+                sleepByQElapsedTimer(500); // 改成500ms间隔
+                addLog(QString("使用 %1 第 %2 次制作点击完成").arg(spiceType).arg(click + 1), LogType::Info);
+            }
+            
+            // 重新选择下一种香料前等待
+            if (i < selectedSpices.size() - 1) {
+                sleepByQElapsedTimer(300);
+            }
+        }
+    }
+    
+    addLog("制卡流程执行完成", LogType::Success);
 }
 
 

@@ -255,6 +255,7 @@ private:
     bool loadCloverTemplates();
     bool loadBindStateTemplate();
     QString calculateImageHash(const QImage& image, const QRect& roi = QRect());
+    double calculateHashSimilarity(const QString& hash1, const QString& hash2); // 新增哈希相似度计算方法
     double calculateColorHistogramSimilarity(const QImage& image1, const QImage& image2, const QRect& roi = QRect());
     QVector<double> calculateColorHistogram(const QImage& image, const QRect& roi = QRect());
     bool isCloverBound(const QImage& cloverImage);
@@ -277,6 +278,12 @@ private:
     bool loadPageTemplates();
     bool isPageAtTop();
     bool isPageAtBottom();
+    
+    // 制卡相关方法
+    QStringList getSelectedSpices(); // 获取勾选的香料列表，按优先级排序
+    bool recognizeMakeButton(); // 识别制作按钮
+    void performCardMaking(); // 执行制卡流程
+    bool verifyRecipeTemplate(const QString& targetRecipe); // 验证配方模板匹配
 
     // 配方识别相关方法（已迁移到 RecipeRecognizer）
     QStringList getAvailableRecipeTypes() const; // 获取所有可用的配方类型
