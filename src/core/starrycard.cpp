@@ -5507,13 +5507,6 @@ void StarryCard::saveSpiceConfig()
             break;
         }
     
-    // 添加边界检查
-    int maxRows = qMin(9, spiceTypes.size());
-    for (int row = 0; row < maxRows; ++row) {
-        if (row >= spiceTypes.size()) {
-            qWarning() << "saveSpiceConfig: spiceTypes索引越界，跳过行" << row;
-            break;
-        }
         QJsonObject spiceObj;
         spiceObj["name"] = spiceTypes[row];
         
@@ -5622,7 +5615,7 @@ void EnhancementWorker::startEnhancement()
                 return;
             }
             // 关闭健康提示
-            m_parent->closeHealthTip(1);
+            m_parent->closeHealthTip();
             threadSafeSleep(1000);
         }
         
