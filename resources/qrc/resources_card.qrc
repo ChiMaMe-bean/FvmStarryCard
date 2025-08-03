@@ -7,6 +7,7 @@
         <file>images/card/中卡：冰激凌.png</file>
         <file>images/card/中卡：双向水管.png</file>
         <file>images/card/中卡：巧克力投手.png</file>
+        <file>images/card/中卡：怪味鱿鱼.png</file>
         <file>images/card/中卡：换气扇.png</file>
         <file>images/card/中卡：汉堡包.png</file>
         <file>images/card/中卡：火盆.png</file>
@@ -18,6 +19,7 @@
         <file>images/card/中卡：雪糕投手.png</file>
         <file>images/card/中卡：香肠.png</file>
         <file>images/card/中卡：鱼刺.png</file>
+        <file>images/card/中卡：麻辣串炸弹.png</file>
         <file>images/card/好卡：三向冰冻小笼包.png</file>
         <file>images/card/好卡：三向国王小笼包.png</file>
         <file>images/card/好卡：三线酒架.png</file>
@@ -48,6 +50,7 @@
         <file>images/card/好卡：肥牛火锅.png</file>
         <file>images/card/好卡：莓果点心.png</file>
         <file>images/card/好卡：菠萝爆炸面包.png</file>
+        <file>images/card/好卡：辣椒粉.png</file>
         <file>images/card/好卡：迷你披萨炉.png</file>
         <file>images/card/好卡：雷电长棍面包.png</file>
         <file>images/card/好卡：香辣年糕蟹.png</file>
@@ -67,6 +70,5 @@
         <file>images/card/差卡：防风草沙拉.png</file>
         <file>images/card/差卡：面粉袋.png</file>
         <file>images/card/差卡：麦芽糖.png</file>
-        <file>images/card/差卡：麻辣串炸弹.png</file>
     </qresource>
 </RCC>
