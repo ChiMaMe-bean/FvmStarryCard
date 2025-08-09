@@ -463,6 +463,10 @@ private:
                               bool spice_bound, bool spice_unbound);
     bool checkSpiceBindState(const QImage& spiceImage, bool spice_bound, bool spice_unbound, bool& actualBindState);
     bool isSpiceBound(const QImage& spiceImage);
+    QPair<bool, bool> getSpiceBindingConfig(const QString& spiceType) const;
+    
+    // 香料配置相关方法
+    QList<QPair<QString, int>> calculateSpiceAllocation(int totalCardCount);
     
     // 翻页检测相关方法
     bool loadPageTemplates();
