@@ -5586,24 +5586,259 @@ void StarryCard::saveSpiceConfig()
             amount = amountSpinBox->value();
         }
         spiceObj["limitAmount"] = amount;
-        
+    
         spicesArray.append(spiceObj);
-    }
-    
-    root["spices"] = spicesArray;
-    
-    QJsonDocument doc(root);
-    
+}
+
+root["spices"] = spicesArray;
+
+QJsonDocument doc(root);
+
+QFile file("spice_config.json");
+if (!file.open(QIODevice::WriteOnly)) {
+    addLog("无法保存香料配置文件", LogType::Error);
+    return;
+}
+
+file.write(doc.toJson());
+file.close();
+
+// qDebug() << "香料配置已保存";
+}
+
+// 获取指定香料的绑定状态配置（只读操作，从配置文件读取）
+QPair<bool, bool> StarryCard::getSpiceBindingConfig(const QString& spiceType) const
+{
+    // 从配置文件中读取香料配置（只读操作）
     QFile file("spice_config.json");
-    if (!file.open(QIODevice::WriteOnly)) {
-        addLog("无法保存香料配置文件", LogType::Error);
-        return;
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "香料配置文件不存在，使用默认配置（未绑定）";
+        return qMakePair(false, true); // 默认只接受未绑定状态
     }
     
-    file.write(doc.toJson());
+    QByteArray data = file.readAll();
     file.close();
     
-    // qDebug() << "香料配置已保存";
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &error);
+    
+    if (error.error != QJsonParseError::NoError) {
+        qDebug() << "香料配置文件解析失败，使用默认配置（未绑定）";
+        return qMakePair(false, true);
+    }
+    
+    if (!doc.isObject()) {
+        qDebug() << "香料配置文件格式错误，使用默认配置（未绑定）";
+        return qMakePair(false, true);
+    }
+    
+    QJsonObject root = doc.object();
+    QJsonArray spicesArray = root["spices"].toArray();
+    
+    // 查找指定香料的配置
+    bool bindingRequired = false; // 默认不绑定
+    bool found = false;
+    
+    for (int i = 0; i < spicesArray.size(); ++i) {
+        QJsonObject spiceObj = spicesArray[i].toObject();
+        QString name = spiceObj["name"].toString();
+        
+        if (name == spiceType) {
+            bindingRequired = spiceObj["bound"].toBool(false); // 默认false
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        qDebug() << "未在配置文件中找到香料类型:" << spiceType << "，使用默认配置（未绑定）";
+        return qMakePair(false, true);
+    }
+    
+    // 根据绑定配置返回相应的参数
+    if (bindingRequired) {
+        // 如果配置要求绑定，则只接受绑定状态
+        qDebug() << QString("香料 %1 配置要求绑定状态").arg(spiceType);
+        return qMakePair(true, false);  // spice_bound=true, spice_unbound=false
+    } else {
+        // 如果配置要求不绑定，则只接受未绑定状态
+        qDebug() << QString("香料 %1 配置要求未绑定状态").arg(spiceType);
+        return qMakePair(false, true);  // spice_bound=false, spice_unbound=true
+    }
+}
+
+// 计算智能香料分配
+QList<QPair<QString, int>> StarryCard::calculateSpiceAllocation(int totalCardCount)
+{
+    QList<QPair<QString, int>> allocation;
+    
+    // 从配置文件中读取香料配置
+    QFile file("spice_config.json");
+    if (!file.open(QIODevice::ReadOnly)) {
+        addLog("香料配置文件不存在，无法进行智能分配", LogType::Error);
+        return allocation;
+    }
+    
+    QByteArray data = file.readAll();
+    file.close();
+    
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &error);
+    
+    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
+        addLog("香料配置文件解析失败，无法进行智能分配", LogType::Error);
+        return allocation;
+    }
+    
+    QJsonObject root = doc.object();
+    QJsonArray spicesArray = root["spices"].toArray();
+    
+    // 第一步：收集所有启用的香料及其配置
+    struct SpiceConfig {
+        QString name;
+        bool used;
+        bool isLimited;
+        int limitAmount;
+        int clicksNeeded; // 该香料需要的点击次数
+    };
+    
+    QList<SpiceConfig> enabledSpices;
+    int totalLimitedClicks = 0; // 限制类型香料的总点击次数
+    
+    for (int i = 0; i < spicesArray.size(); ++i) {
+        QJsonObject spiceObj = spicesArray[i].toObject();
+        bool used = spiceObj["used"].toBool(false);
+        
+        if (!used) continue; // 跳过未启用的香料
+        
+        SpiceConfig config;
+        config.name = spiceObj["name"].toString();
+        config.used = used;
+        config.isLimited = (spiceObj["limitType"].toString() == "限制");
+        config.limitAmount = spiceObj["limitAmount"].toInt(0);
+        config.clicksNeeded = 0;
+        
+        if (config.isLimited) {
+            // 限制类型：计算点击次数 = limitAmount / 5（向下取整）
+            config.clicksNeeded = qMin(config.limitAmount / 5, 32765 / 5); // 防止超过最大限制
+            totalLimitedClicks += config.clicksNeeded;
+        }
+        
+        enabledSpices.append(config);
+    }
+    
+    if (enabledSpices.isEmpty()) {
+        addLog("没有启用的香料，无法进行制卡", LogType::Warning);
+        return allocation;
+    }
+    
+    // 第二步：智能分配逻辑 - 区分真正受限和充足的香料
+    addLog("开始智能分配香料...", LogType::Info);
+    
+    // 计算如果所有香料均分，每个香料应该分配多少次
+    int totalSpiceCount = enabledSpices.size();
+    int averageClicksPerSpice = totalCardCount / totalSpiceCount;
+    
+    addLog(QString("总香料数: %1, 平均每种香料: %2次").arg(totalSpiceCount).arg(averageClicksPerSpice), LogType::Info);
+    
+    // 分类香料：真正受限的香料 vs 充足的香料（无限制 + 限制量充足）
+    QList<SpiceConfig> trulyLimitedSpices;  // 真正受限的香料
+    QStringList abundantSpices;             // 充足的香料
+    
+    for (const auto& spice : enabledSpices) {
+        if (spice.isLimited) {
+            // 如果限制量小于平均分配量，才算真正受限
+            if (spice.clicksNeeded < averageClicksPerSpice) {
+                trulyLimitedSpices.append(spice);
+                addLog(QString("真正受限香料: %1 (限制%2次 < 平均%3次)")
+                       .arg(spice.name).arg(spice.clicksNeeded).arg(averageClicksPerSpice), LogType::Info);
+            } else {
+                // 限制量充足，视为无限制
+                abundantSpices.append(spice.name);
+                addLog(QString("充足香料: %1 (限制%2次 >= 平均%3次)")
+                       .arg(spice.name).arg(spice.clicksNeeded).arg(averageClicksPerSpice), LogType::Info);
+            }
+        } else {
+            // 无限制香料
+            abundantSpices.append(spice.name);
+            addLog(QString("无限制香料: %1").arg(spice.name), LogType::Info);
+        }
+    }
+    
+    // 第一步：先分配真正受限的香料
+    int usedClicks = 0;
+    for (const auto& spice : trulyLimitedSpices) {
+        allocation.append(qMakePair(spice.name, spice.clicksNeeded));
+        usedClicks += spice.clicksNeeded;
+        addLog(QString("分配受限香料 %1: %2次").arg(spice.name).arg(spice.clicksNeeded), LogType::Info);
+    }
+    
+    // 第二步：剩余的制卡需求由充足香料均分
+    int remainingClicks = totalCardCount - usedClicks;
+    if (remainingClicks > 0 && !abundantSpices.isEmpty()) {
+        addLog(QString("剩余制卡需求: %1次，由%2种充足香料均分").arg(remainingClicks).arg(abundantSpices.size()), LogType::Info);
+        
+        int clicksPerAbundantSpice = remainingClicks / abundantSpices.size();
+        int extraClicks = remainingClicks % abundantSpices.size();
+        
+        for (int i = 0; i < abundantSpices.size(); ++i) {
+            int clicks = clicksPerAbundantSpice;
+            if (i < extraClicks) {
+                clicks++; // 前几个香料多分配一次
+            }
+            
+            if (clicks > 0) {
+                allocation.append(qMakePair(abundantSpices[i], clicks));
+                addLog(QString("分配充足香料 %1: %2次").arg(abundantSpices[i]).arg(clicks), LogType::Info);
+            }
+        }
+    } else if (remainingClicks > 0) {
+        addLog(QString("警告：还有%1次制卡需求未分配，无充足香料可用").arg(remainingClicks), LogType::Warning);
+    }
+    
+    // 第三步：按优先级排序分配结果（从圣灵香料到天然香料）
+    QStringList spicePriorityOrder = {
+        "圣灵香料", "天使香料", "精灵香料", "魔幻香料", "皇室香料",
+        "极品香料", "秘制香料", "上等香料", "天然香料"
+    };
+    
+    QList<QPair<QString, int>> sortedAllocation;
+    
+    // 按优先级顺序重新排列分配结果
+    for (const QString& prioritySpice : spicePriorityOrder) {
+        for (const auto& pair : allocation) {
+            if (pair.first == prioritySpice) {
+                sortedAllocation.append(pair);
+                break;
+            }
+        }
+    }
+    
+    // 添加任何不在优先级列表中的香料（如"无香料"）
+    for (const auto& pair : allocation) {
+        bool found = false;
+        for (const auto& sortedPair : sortedAllocation) {
+            if (sortedPair.first == pair.first) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            sortedAllocation.append(pair);
+        }
+    }
+    
+    // 第四步：输出排序后的分配结果
+    addLog("===== 香料分配结果 ======", LogType::Info);
+    int totalAllocated = 0;
+    for (const auto& pair : sortedAllocation) {
+        addLog(QString("%1: %2次").arg(pair.first).arg(pair.second), LogType::Info);
+        totalAllocated += pair.second;
+    }
+    addLog(QString("总计: %1次 (目标: %2次)").arg(totalAllocated).arg(totalCardCount), LogType::Info);
+    addLog("====================", LogType::Info);
+    
+    return sortedAllocation;
 }
 
 // ========== EnhancementWorker 类实现 ==========
@@ -6124,61 +6359,28 @@ bool StarryCard::recognizeMakeButton()
     QRect buttonArea(260, 416, 20, 20);
     QImage buttonImage = screenshot.copy(buttonArea);
     
-    addLog(QString("制作按钮截图尺寸: %1x%2, 按钮区域: (%3,%4) %5x%6")
-           .arg(screenshot.width()).arg(screenshot.height())
-           .arg(buttonArea.x()).arg(buttonArea.y())
-           .arg(buttonArea.width()).arg(buttonArea.height()), LogType::Info);
-    
     if (buttonImage.isNull()) {
         addLog("截取制作按钮区域失败", LogType::Error);
         return false;
     }
     
-    // 创建调试文件夹并保存按钮图像
-    QString appDir = QCoreApplication::applicationDirPath();
-    QString debugDir = appDir + "/debug_recipe";
-    QDir dir(debugDir);
-    if (!dir.exists()) {
-        dir.mkpath(debugDir);
-    }
-    
-    // 生成时间戳
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-    
-    // 保存制作按钮区域图像
-    QString buttonImagePath = debugDir + QString("/make_button_%1.png").arg(timestamp);
-    if (buttonImage.save(buttonImagePath)) {
-        addLog(QString("制作按钮图像已保存: %1").arg(buttonImagePath), LogType::Info);
-    }
-    
-    // 加载模板图片并计算哈希值
-    QImage makeTemplate(":/images/position/(260,416)制作.png");
-    QImage makeBrightTemplate(":/images/position/(260,416)制作亮.png");
+    // 静态加载模板图片（避免重复加载）
+    static QImage makeTemplate(":/images/position/(260,416)制作.png");
+    static QImage makeBrightTemplate(":/images/position/(260,416)制作亮.png");
+    static QString makeHash = calculateImageHash(makeTemplate);
+    static QString makeBrightHash = calculateImageHash(makeBrightTemplate);
     
     if (makeTemplate.isNull() || makeBrightTemplate.isNull()) {
         addLog("加载制作按钮模板失败", LogType::Error);
         return false;
     }
     
-    // 保存模板图像以供对比
-    QString makeTemplatePath = debugDir + QString("/make_template_normal_%1.png").arg(timestamp);
-    QString makeBrightTemplatePath = debugDir + QString("/make_template_bright_%1.png").arg(timestamp);
-    makeTemplate.save(makeTemplatePath);
-    makeBrightTemplate.save(makeBrightTemplatePath);
-    
     // 计算当前按钮图像的哈希值
     QString currentHash = calculateImageHash(buttonImage);
-    QString makeHash = calculateImageHash(makeTemplate);
-    QString makeBrightHash = calculateImageHash(makeBrightTemplate);
     
     // 计算相似度
     double makeSimilarity = calculateHashSimilarity(currentHash, makeHash);
     double makeBrightSimilarity = calculateHashSimilarity(currentHash, makeBrightHash);
-    
-    addLog(QString("制作按钮识别结果 - 普通按钮相似度: %1, 亮按钮相似度: %2")
-           .arg(makeSimilarity, 0, 'f', 4).arg(makeBrightSimilarity, 0, 'f', 4), LogType::Info);
-    addLog(QString("制作按钮哈希值 - 当前: %1, 普通模板: %2, 亮模板: %3")
-           .arg(currentHash).arg(makeHash).arg(makeBrightHash), LogType::Info);
     
     // 如果任一模板相似度大于0.8，则认为识别成功
     bool recognized = (makeSimilarity > 0.8 || makeBrightSimilarity > 0.8);
@@ -6186,9 +6388,7 @@ bool StarryCard::recognizeMakeButton()
     if (recognized) {
         addLog("制作按钮识别成功", LogType::Success);
     } else {
-        addLog("制作按钮识别失败", LogType::Error);
-        addLog(QString("调试信息: 按钮图像大小=%1x%2, 保存路径=%3")
-               .arg(buttonImage.width()).arg(buttonImage.height()).arg(buttonImagePath), LogType::Info);
+        addLog(QString("制作按钮识别失败 (相似度: %1/%2)").arg(makeSimilarity, 0, 'f', 2).arg(makeBrightSimilarity, 0, 'f', 2), LogType::Error);
     }
     
     return recognized;
@@ -6212,41 +6412,9 @@ bool StarryCard::verifyRecipeTemplate(const QString& targetRecipe)
     QRect verifyROIArea(268, 344, 38, 24);
     QImage verifyROI = screenshot.copy(verifyROIArea);
     
-    addLog(QString("截图尺寸: %1x%2, 验证ROI区域: (%3,%4) %5x%6")
-           .arg(screenshot.width()).arg(screenshot.height())
-           .arg(verifyROIArea.x()).arg(verifyROIArea.y())
-           .arg(verifyROIArea.width()).arg(verifyROIArea.height()), LogType::Info);
-    
     if (verifyROI.isNull()) {
         addLog("截取配方验证ROI区域失败", LogType::Error);
         return false;
-    }
-    
-    // 创建调试文件夹并保存验证图像
-    QString appDir = QCoreApplication::applicationDirPath();
-    QString debugDir = appDir + "/debug_recipe";
-    QDir dir(debugDir);
-    if (!dir.exists()) {
-        if (!dir.mkpath(debugDir)) {
-            addLog("创建调试文件夹失败: " + debugDir, LogType::Warning);
-        } else {
-            addLog("创建调试文件夹: " + debugDir, LogType::Info);
-        }
-    }
-    
-    // 生成时间戳
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-    
-    // 保存验证ROI区域图像
-    QString verifyROIPath = debugDir + QString("/verify_roi_%1_%2.png").arg(targetRecipe).arg(timestamp);
-    if (verifyROI.save(verifyROIPath)) {
-        addLog(QString("验证ROI区域图像已保存: %1").arg(verifyROIPath), LogType::Info);
-    }
-    
-    // 保存完整截图以供参考
-    QString fullScreenPath = debugDir + QString("/full_screen_%1_%2.png").arg(targetRecipe).arg(timestamp);
-    if (screenshot.save(fullScreenPath)) {
-        addLog(QString("完整截图已保存: %1").arg(fullScreenPath), LogType::Info);
     }
     
     // 使用配方识别器进行比较
@@ -6273,22 +6441,10 @@ bool StarryCard::verifyRecipeTemplate(const QString& targetRecipe)
         return false;
     }
     
-    // 保存模板ROI图像以供对比
-    QString templateROIPath = debugDir + QString("/template_roi_%1_%2.png").arg(targetRecipe).arg(timestamp);
-    if (templateROI.save(templateROIPath)) {
-        addLog(QString("模板ROI图像已保存: %1").arg(templateROIPath), LogType::Info);
-    }
-    
     // 计算ROI区域的哈希值并比较
     QString verifyHash = calculateImageHash(verifyROI);
     QString templateHash = calculateImageHash(templateROI);
     double similarity = calculateHashSimilarity(verifyHash, templateHash);
-    
-    addLog(QString("配方模板验证 - 目标配方: %1, 相似度: %2")
-           .arg(targetRecipe).arg(similarity, 0, 'f', 4), LogType::Info);
-    addLog(QString("验证ROI尺寸: %1x%2, 模板ROI尺寸: %3x%4")
-           .arg(verifyROI.width()).arg(verifyROI.height())
-           .arg(templateROI.width()).arg(templateROI.height()), LogType::Info);
     
     // 检查相似度是否大于0.8
     bool verified = (similarity > 0.8);
@@ -6296,8 +6452,7 @@ bool StarryCard::verifyRecipeTemplate(const QString& targetRecipe)
     if (verified) {
         addLog("配方模板验证成功", LogType::Success);
     } else {
-        addLog("配方模板验证失败，相似度不足", LogType::Error);
-        addLog(QString("哈希值 - 验证: %1, 模板: %2").arg(verifyHash).arg(templateHash), LogType::Info);
+        addLog(QString("配方模板验证失败 (相似度: %1)").arg(similarity, 0, 'f', 2), LogType::Error);
     }
     
     return verified;
@@ -6340,13 +6495,13 @@ void StarryCard::performCardMaking()
     // 步骤3: 配方识别和点击
     addLog("开始配方识别...", LogType::Info);
     recipeRecognizer->recognizeRecipeWithPaging(captureWindowByHandle(hwndGame, "制卡配方识别"), targetRecipe, hwndGame);
-    sleepByQElapsedTimer(1000); // 等待配方点击完成
+    sleepByQElapsedTimer(200); // 等待时间
     
     // 步骤4: 验证配方模板匹配
     addLog("验证配方模板匹配...", LogType::Info);
     
     // 等待一段时间确保页面稳定，然后再验证
-    sleepByQElapsedTimer(500);
+    sleepByQElapsedTimer(200); // 等待时间
     
     if (!verifyRecipeTemplate(targetRecipe)) {
         addLog("配方模板验证失败，制卡流程终止", LogType::Error);
@@ -6360,31 +6515,19 @@ void StarryCard::performCardMaking()
         return;
     }
     
-    // 步骤6: 获取选择的香料
-    QStringList selectedSpices = getSelectedSpices();
-    if (selectedSpices.isEmpty()) {
-        addLog("未选择任何香料，将直接制作无香料卡片", LogType::Warning);
-        selectedSpices.append("无香料");
+    // 步骤6: 使用智能香料分配算法
+    const int totalClicks = 12;
+    QList<QPair<QString, int>> spiceAllocation = calculateSpiceAllocation(totalClicks);
+    
+    if (spiceAllocation.isEmpty()) {
+        addLog("智能香料分配失败，将直接制作无香料卡片", LogType::Warning);
+        spiceAllocation.append(qMakePair("无香料", totalClicks));
     }
     
-    // 步骤7: 计算每种香料的点击次数
-    const int totalClicks = 12;
-    int spiceCount = selectedSpices.size();
-    int clicksPerSpice = totalClicks / spiceCount;
-    int remainingClicks = totalClicks % spiceCount;
-    
-    addLog(QString("制卡参数 - 总点击次数: %1, 香料种类: %2, 每种香料点击: %3次, 余数: %4")
-           .arg(totalClicks).arg(spiceCount).arg(clicksPerSpice).arg(remainingClicks), LogType::Info);
-    
-    // 步骤8: 执行制卡流程
-    for (int i = 0; i < selectedSpices.size(); ++i) {
-        const QString& spiceType = selectedSpices[i];
-        int currentSpiceClicks = clicksPerSpice;
-        
-        // 如果有余数，前几种香料多点击一次
-        if (i < remainingClicks) {
-            currentSpiceClicks++;
-        }
+    // 步骤7: 执行制卡流程
+    for (int i = 0; i < spiceAllocation.size(); ++i) {
+        const QString& spiceType = spiceAllocation[i].first;
+        int currentSpiceClicks = spiceAllocation[i].second;
         
         if (spiceType == "无香料") {
             // 无香料直接点击制作按钮
@@ -6398,8 +6541,13 @@ void StarryCard::performCardMaking()
             // 选择香料并点击制作
             addLog(QString("选择香料: %1，点击制作按钮 %2 次").arg(spiceType).arg(currentSpiceClicks), LogType::Info);
             
+            // 从香料配置获取绑定状态设置
+            QPair<bool, bool> bindingConfig = getSpiceBindingConfig(spiceType);
+            bool spice_bound = bindingConfig.first;
+            bool spice_unbound = bindingConfig.second;
+            
             // 识别并点击香料
-            QPair<bool, bool> spiceResult = recognizeSpice(spiceType, false, true); // 接受绑定和未绑定
+            QPair<bool, bool> spiceResult = recognizeSpice(spiceType, spice_bound, spice_unbound);
             if (!spiceResult.first) {
                 addLog(QString("香料 '%1' 识别失败，跳过").arg(spiceType), LogType::Warning);
                 continue;
@@ -6415,8 +6563,8 @@ void StarryCard::performCardMaking()
             }
             
             // 重新选择下一种香料前等待
-            if (i < selectedSpices.size() - 1) {
-                sleepByQElapsedTimer(300);
+            if (i < spiceAllocation.size() - 1) {
+                sleepByQElapsedTimer(100);
             }
         }
     }
