@@ -38,6 +38,7 @@
 #include <QPair>
 #include <QMutex>
 #include <QWaitCondition>
+#include <algorithm>
 #include "../ui/custombutton.h"
 #include "utils.h"
 #include "../recognition/cardrecognizer.h"
@@ -82,6 +83,8 @@ private:
     StarryCard* m_parent;
     void performEnhancement();
     BOOL performEnhancementOnce(const QVector<CardInfo>& cardVector);
+    BOOL performCardProduce(const QVector<CardInfo>& cardVector);
+    void analyzeEnhancementConfigForCardProduce(); // 分析强化配置提取制卡需求
     void threadSafeSleep(int ms);
 };
 
@@ -131,8 +134,195 @@ struct GlobalEnhancementConfig {
     }
 };
 
+// 全局香料配置数据结构
+struct GlobalSpiceConfig {
+    struct SpiceItem {
+        QString name;           // 香料名称
+        bool used = true;       // 是否使用
+        bool bound = false;     // 是否绑定
+        QString limitType = "无限制";  // 限制类型
+        int limitAmount = 0;    // 限制数量
+        int spiceLevel = 0;     // 香料等级
+    };
+    
+    QVector<SpiceItem> spices;  // 香料列表
+    
+    // 获取已启用的香料名称列表
+    QStringList getUsedSpiceNames() const {
+        QStringList result;
+        for (const auto& spice : spices) {
+            if (spice.used) {
+                result.append(spice.name);
+            }
+        }
+        return result;
+    }
+    
+    // 根据名称查找香料配置
+    SpiceItem* findSpiceByName(const QString& name) {
+        for (auto& spice : spices) {
+            if (spice.name == name) {
+                return &spice;
+            }
+        }
+        return nullptr;
+    }
+    
+    // 根据等级查找香料配置
+    SpiceItem* findSpiceByLevel(int level) {
+        for (auto& spice : spices) {
+            if (spice.spiceLevel == level && spice.used) {
+                return &spice;
+            }
+        }
+        return nullptr;
+    }
+    
+    // 获取已启用的香料，按等级排序（从低到高）
+    QVector<SpiceItem> getUsedSpicesByLevel() const {
+        QVector<SpiceItem> result;
+        for (const auto& spice : spices) {
+            if (spice.used) {
+                result.append(spice);
+            }
+        }
+        // 按等级排序
+        std::sort(result.begin(), result.end(), [](const SpiceItem& a, const SpiceItem& b) {
+            return a.spiceLevel < b.spiceLevel;
+        });
+        return result;
+    }
+    
+    // 获取指定等级范围内的已启用香料
+    QVector<SpiceItem> getUsedSpicesInLevelRange(int minLevel, int maxLevel) const {
+        QVector<SpiceItem> result;
+        for (const auto& spice : spices) {
+            if (spice.used && spice.spiceLevel >= minLevel && spice.spiceLevel <= maxLevel) {
+                result.append(spice);
+            }
+        }
+        // 按等级排序
+        std::sort(result.begin(), result.end(), [](const SpiceItem& a, const SpiceItem& b) {
+            return a.spiceLevel < b.spiceLevel;
+        });
+        return result;
+    }
+    
+    // 清空配置
+    void clear() {
+        spices.clear();
+    }
+};
+
+// 需要制作的卡片配置数据结构
+struct CardProduceConfig {
+    struct ProduceItem {
+        QString cardType;       // 卡片类型
+        int targetLevel;        // 目标等级
+        bool bound;             // 绑定状态
+        bool unbound;           // 不绑状态
+        
+        ProduceItem() : targetLevel(0), bound(false), unbound(false) {}
+        ProduceItem(const QString& type, int level, bool b, bool ub)
+            : cardType(type), targetLevel(level), bound(b), unbound(ub) {}
+        
+        // 比较操作符，用于去重
+        bool operator==(const ProduceItem& other) const {
+            return cardType == other.cardType && 
+                   targetLevel == other.targetLevel && 
+                   bound == other.bound && 
+                   unbound == other.unbound;
+        }
+        
+        // 小于操作符，用于排序
+        bool operator<(const ProduceItem& other) const {
+            if (cardType != other.cardType) return cardType < other.cardType;
+            if (targetLevel != other.targetLevel) return targetLevel < other.targetLevel;
+            if (bound != other.bound) return bound < other.bound;
+            return unbound < other.unbound;
+        }
+    };
+    
+    QVector<ProduceItem> produceItems;  // 需要制作的卡片列表
+    
+    // 添加制作项目（自动去重）
+    void addProduceItem(const QString& cardType, int level, bool bound, bool unbound) {
+        ProduceItem newItem(cardType, level, bound, unbound);
+        // 检查是否已存在相同的项目
+        for (const auto& existingItem : produceItems) {
+            if (existingItem == newItem) {
+                return; // 已存在，不添加
+            }
+        }
+        produceItems.append(newItem);
+    }
+    
+    // 手动去重方法
+    void removeDuplicates() {
+        QVector<ProduceItem> uniqueItems;
+        for (const auto& item : produceItems) {
+            bool exists = false;
+            for (const auto& uniqueItem : uniqueItems) {
+                if (item == uniqueItem) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                uniqueItems.append(item);
+            }
+        }
+        produceItems = uniqueItems;
+    }
+    
+    // 排序制作项目
+    void sortProduceItems() {
+        std::sort(produceItems.begin(), produceItems.end());
+    }
+    
+    // 获取指定卡片类型和等级的制作项目
+    QVector<ProduceItem> getProduceItemsByTypeAndLevel(const QString& cardType, int level) const {
+        QVector<ProduceItem> result;
+        for (const auto& item : produceItems) {
+            if (item.cardType == cardType && item.targetLevel == level) {
+                result.append(item);
+            }
+        }
+        return result;
+    }
+    
+    // 获取指定卡片类型的所有制作项目
+    QVector<ProduceItem> getProduceItemsByType(const QString& cardType) const {
+        QVector<ProduceItem> result;
+        for (const auto& item : produceItems) {
+            if (item.cardType == cardType) {
+                result.append(item);
+            }
+        }
+        return result;
+    }
+    
+    // 清空配置
+    void clear() {
+        produceItems.clear();
+    }
+    
+    // 获取所有不同的卡片类型
+    QStringList getUniqueCardTypes() const {
+        QStringList types;
+        for (const auto& item : produceItems) {
+            if (!types.contains(item.cardType)) {
+                types.append(item.cardType);
+            }
+        }
+        return types;
+    }
+};
+
 // 全局配置数据实例声明
 extern GlobalEnhancementConfig g_enhancementConfig;
+extern GlobalSpiceConfig g_spiceConfig;
+extern CardProduceConfig g_cardProduceConfig;
 
 // 卡片设置对话框
 class CardSettingDialog : public QDialog
@@ -447,6 +637,7 @@ private slots:
     void scheduleSpiceConfigSave(); // 计划延迟保存香料配置
     void loadSpiceConfig(); // 加载香料配置
     void saveSpiceConfig(); // 保存香料配置
+    bool loadGlobalSpiceConfig(); // 加载全局香料配置（仅used=true的项目）
     
 public:
     void updateRecipeCombo(); // 更新配方选择下拉框

@@ -69,6 +69,8 @@ const QPoint StarryCard::ENHANCE_SCROLL_TOP(910, 120);    // 强化滚动条顶�
 
 // 定义全局强化配置数据实例
 GlobalEnhancementConfig g_enhancementConfig;
+GlobalSpiceConfig g_spiceConfig;
+CardProduceConfig g_cardProduceConfig;
 
 StarryCard::StarryCard(QWidget *parent)
     : QMainWindow(parent)
@@ -961,7 +963,7 @@ void StarryCard::startEnhancement()
         requiredCardTypes = getRequiredCardTypesFromConfig();
         
         // 在主线程中预先加载全局强化配置
-        if (loadGlobalEnhancementConfig()) {
+        if (loadGlobalEnhancementConfig() && loadGlobalSpiceConfig()) {
             addLog("全局强化配置加载成功", LogType::Success);
         } else {
             addLog("全局强化配置加载失败，使用默认配置", LogType::Warning);
@@ -4201,8 +4203,6 @@ bool StarryCard::isSpiceBound(const QImage& spiceImage)
 
 // ================== 配方识别功能实现 ==================
 
-// loadRecipeTemplates 函数已迁移到 RecipeRecognizer 类
-
 // calculateRecipeHistogram 函数已迁移到 RecipeRecognizer 类
 
 QStringList StarryCard::getAvailableRecipeTypes() const
@@ -5130,6 +5130,95 @@ bool StarryCard::loadGlobalEnhancementConfig()
     return true;
 }
 
+bool StarryCard::loadGlobalSpiceConfig()
+{
+    // 清空现有配置
+    g_spiceConfig.clear();
+    
+    QFile file("spice_config.json");
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "无法打开香料配置文件: spice_config.json";
+        return false;
+    }
+    
+    QByteArray data = file.readAll();
+    file.close();
+    
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &error);
+    
+    if (error.error != QJsonParseError::NoError) {
+        qDebug() << "香料配置JSON解析错误:" << error.errorString();
+        return false;
+    }
+    
+    if (!doc.isObject()) {
+        qDebug() << "香料配置JSON根节点不是对象";
+        return false;
+    }
+    
+    QJsonObject root = doc.object();
+    QJsonArray spicesArray = root["spices"].toArray();
+    
+    // 加载每个香料配置，但只加载used=true的项目
+    // 香料等级对应关系：1-天然香料, 2-上等香料, 3-秘制香料, 4-极品香料, 5-皇室香料,
+    //                 6-魔幻香料, 7-精灵香料, 8-天使香料, 9-圣灵香料
+    for (const QJsonValue& value : spicesArray) {
+        QJsonObject spiceObj = value.toObject();
+        
+        // 检查是否启用
+        bool used = spiceObj["used"].toBool(true);  // 默认为true
+        if (!used) {
+            continue;  // 跳过未启用的香料
+        }
+        
+        GlobalSpiceConfig::SpiceItem spiceItem;
+        
+        // 加载香料基本信息
+        if (spiceObj.contains("name") && spiceObj["name"].isString()) {
+            spiceItem.name = spiceObj["name"].toString();
+        }
+        
+        spiceItem.used = used;
+        
+        if (spiceObj.contains("bound") && spiceObj["bound"].isBool()) {
+            spiceItem.bound = spiceObj["bound"].toBool();
+        }
+        
+        if (spiceObj.contains("limitType") && spiceObj["limitType"].isString()) {
+            spiceItem.limitType = spiceObj["limitType"].toString();
+        }
+        
+        if (spiceObj.contains("limitAmount") && spiceObj["limitAmount"].isDouble()) {
+            spiceItem.limitAmount = spiceObj["limitAmount"].toInt();
+        }
+        
+        if (spiceObj.contains("spiceLevel") && spiceObj["spiceLevel"].isDouble()) {
+            spiceItem.spiceLevel = spiceObj["spiceLevel"].toInt();
+        }
+        
+        // 只有name不为空的香料才添加到配置中
+        if (!spiceItem.name.isEmpty()) {
+            g_spiceConfig.spices.append(spiceItem);
+        }
+    }
+    
+    qDebug() << "全局香料配置加载完成:";
+    qDebug() << "- 已加载" << g_spiceConfig.spices.size() << "个启用的香料配置";
+    
+    // 按等级显示香料信息
+    QVector<GlobalSpiceConfig::SpiceItem> sortedSpices = g_spiceConfig.getUsedSpicesByLevel();
+    if (!sortedSpices.isEmpty()) {
+        QStringList spiceInfo;
+        for (const auto& spice : sortedSpices) {
+            spiceInfo.append(QString("%1(等级%2)").arg(spice.name).arg(spice.spiceLevel));
+        }
+        qDebug() << "- 启用的香料（按等级排序）:" << spiceInfo.join(", ");
+    }
+    
+    return true;
+}
+
 // ================================== 香料配置页面功能 ==================================
 
 QWidget* StarryCard::createSpiceConfigPage()
@@ -5586,6 +5675,8 @@ void StarryCard::saveSpiceConfig()
             amount = amountSpinBox->value();
         }
         spiceObj["limitAmount"] = amount;
+
+        spiceObj["spiceLevel"] = row + 1;
         
         spicesArray.append(spiceObj);
     }
@@ -5630,6 +5721,9 @@ void EnhancementWorker::startEnhancement()
 
         // 最高强化等级和最低强化等级已经在主线程中设置到成员变量
         // 全局强化配置已经在主线程中预加载
+        
+        // 分析强化配置，提取需要制作的卡片信息
+        analyzeEnhancementConfigForCardProduce();
         
         // 创建本地副本避免跨线程访问QStringList
         QStringList cardTypesCopy = m_parent->requiredCardTypes;
@@ -5933,7 +6027,7 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
                 QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
                 if (m_parent->checkSynHousePosState(screenshot, m_parent->SUB_CARD_POS, "subCardEmpty"))
                 {
-                    emit logMessage("副卡位置为空，强化完成，等待强化结果", LogType::Success);
+                    // emit logMessage("副卡位置为空，强化完成，等待强化结果", LogType::Success);
                     break;
                 }
                 else if(i == 99)
@@ -5942,17 +6036,17 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
                     emit showWarningMessage("错误", "副卡位置异常，强化已停止！");
                     return FALSE;
                 }
-                threadSafeSleep(30);
+                threadSafeSleep(50);
             }
 
             // 强化完成后清空主卡位置
+            m_parent->leftClickDPI(m_parent->hwndGame, 288, 350); // 点击主卡位置卸下主卡
             for (int i = 0; i < 100 && m_parent->isEnhancing; i++)
             {
-                m_parent->leftClickDPI(m_parent->hwndGame, 288, 350); // 点击主卡位置卸下主卡
                 QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
                 if (m_parent->checkSynHousePosState(screenshot, m_parent->MAIN_CARD_POS, "mainCardEmpty"))
                 {
-                    emit logMessage(QString("主卡位置为空，卸卡完成，%1-%2星强化完成").arg(level - 1).arg(level), LogType::Success);
+                    // emit logMessage(QString("主卡位置为空，卸卡完成，%1-%2星强化完成").arg(level - 1).arg(level), LogType::Success);
                     return TRUE;
                 }
                 else if(i == 99)
@@ -5961,13 +6055,145 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
                     emit showWarningMessage("错误", "主卡位置异常，强化已停止！");
                     return FALSE;
                 }
-                threadSafeSleep(30);
+                threadSafeSleep(50);
             }
         }
     }
 
     // 未找到可以强化的卡片，启动制卡流程
     return FALSE;
+}
+
+// BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo>& cardVector)
+// {
+//     goToPage(PageType::CardProduce); // 进入制卡页面
+
+//     threadSafeSleep(100);
+
+//   }
+
+void EnhancementWorker::analyzeEnhancementConfigForCardProduce()
+{
+    // 清空之前的制卡配置
+    g_cardProduceConfig.clear();
+    
+    emit logMessage("开始分析强化配置，提取制卡需求...", LogType::Info);
+    
+    // 从最高等级开始，遍历每个强化等级
+    for (int level = m_parent->maxEnhancementLevel; level >= m_parent->minEnhancementLevel; --level) {
+        // 获取当前等级的配置
+        auto levelConfig = g_enhancementConfig.getLevelConfig(level - 1, level);
+        
+        // 检查副卡配置
+        QVector<int> subcardLevels;
+        if (levelConfig.subcard1 >= 0) subcardLevels.append(levelConfig.subcard1);
+        if (levelConfig.subcard2 >= 0) subcardLevels.append(levelConfig.subcard2);
+        if (levelConfig.subcard3 >= 0) subcardLevels.append(levelConfig.subcard3);
+        
+        // 如果有副卡需求且副卡类型不为"无"
+        if (!subcardLevels.isEmpty() && levelConfig.subCardType != "无" && !levelConfig.subCardType.isEmpty()) {
+            for (int subcardLevel : subcardLevels) {
+                // 先检查是否已存在，避免重复日志
+                CardProduceConfig::ProduceItem newItem(
+                    levelConfig.subCardType,
+                    subcardLevel,
+                    levelConfig.subCardBound,
+                    levelConfig.subCardUnbound
+                );
+                
+                bool itemExists = false;
+                for (const auto& existingItem : g_cardProduceConfig.produceItems) {
+                    if (existingItem == newItem) {
+                        itemExists = true;
+                        break;
+                    }
+                }
+                
+                g_cardProduceConfig.addProduceItem(
+                    levelConfig.subCardType,
+                    subcardLevel,
+                    levelConfig.subCardBound,
+                    levelConfig.subCardUnbound
+                );
+                
+                if (!itemExists) {
+                    emit logMessage(QString("添加制卡需求: %1 %2星 (绑定:%3, 不绑:%4) - 来自等级%5-%6强化配置")
+                        .arg(levelConfig.subCardType)
+                        .arg(subcardLevel)
+                        .arg(levelConfig.subCardBound ? "是" : "否")
+                        .arg(levelConfig.subCardUnbound ? "是" : "否")
+                        .arg(level - 1).arg(level), LogType::Info);
+                } else {
+                    emit logMessage(QString("跳过重复的制卡需求: %1 %2星 (绑定:%3, 不绑:%4)")
+                        .arg(levelConfig.subCardType)
+                        .arg(subcardLevel)
+                        .arg(levelConfig.subCardBound ? "是" : "否")
+                        .arg(levelConfig.subCardUnbound ? "是" : "否"), LogType::Info);
+                }
+            }
+        }
+        
+        // 检查主卡配置（如果需要特定等级的主卡）
+        // 注意：通常主卡是从背包中选择现有的，但某些情况下可能需要制作特定等级的主卡
+        if (levelConfig.mainCardType != "无" && !levelConfig.mainCardType.isEmpty()) {
+            // 这里可以根据具体需求决定是否需要制作主卡
+            // 例如，如果主卡需要特定等级且背包中没有，则需要制作
+            // 暂时注释掉，可根据实际需求启用
+            /*
+            g_cardProduceConfig.addProduceItem(
+                levelConfig.mainCardType,
+                level - 1,  // 主卡通常比目标等级低1
+                levelConfig.mainCardBound,
+                levelConfig.mainCardUnbound
+            );
+            */
+        }
+    }
+    
+    // 最终去重和排序（确保数据一致性）
+    g_cardProduceConfig.removeDuplicates();
+    g_cardProduceConfig.sortProduceItems();
+    
+    // 输出制卡需求汇总
+    if (g_cardProduceConfig.produceItems.isEmpty()) {
+        emit logMessage("未发现制卡需求", LogType::Warning);
+    } else {
+        emit logMessage(QString("制卡需求分析完成，共需制作 %1 个不同的制卡项目，涉及 %2 种不同类型的卡片")
+            .arg(g_cardProduceConfig.produceItems.size())
+            .arg(g_cardProduceConfig.getUniqueCardTypes().size()), LogType::Success);
+        
+        // 详细显示每个制卡需求
+        emit logMessage("详细制卡需求列表:", LogType::Info);
+        for (int i = 0; i < g_cardProduceConfig.produceItems.size(); ++i) {
+            const auto& item = g_cardProduceConfig.produceItems[i];
+            emit logMessage(QString("  %1. %2 %3星 (绑定:%4, 不绑:%5)")
+                .arg(i + 1)
+                .arg(item.cardType)
+                .arg(item.targetLevel)
+                .arg(item.bound ? "是" : "否")
+                .arg(item.unbound ? "是" : "否"), LogType::Info);
+        }
+        
+        // 按卡片类型分组显示制卡需求汇总
+        emit logMessage("按卡片类型分组汇总:", LogType::Info);
+        QStringList uniqueTypes = g_cardProduceConfig.getUniqueCardTypes();
+        for (const QString& cardType : uniqueTypes) {
+            QVector<CardProduceConfig::ProduceItem> items = g_cardProduceConfig.getProduceItemsByType(cardType);
+            QStringList levelInfo;
+            for (const auto& item : items) {
+                QString bindInfo = "";
+                if (item.bound && item.unbound) {
+                    bindInfo = "(绑定+不绑)";
+                } else if (item.bound) {
+                    bindInfo = "(仅绑定)";
+                } else if (item.unbound) {
+                    bindInfo = "(仅不绑)";
+                }
+                levelInfo.append(QString("%1星%2").arg(item.targetLevel).arg(bindInfo));
+            }
+            emit logMessage(QString("- %1: %2").arg(cardType).arg(levelInfo.join(", ")), LogType::Info);
+        }
+    }
 }
 
 void EnhancementWorker::threadSafeSleep(int ms)
@@ -6052,6 +6278,28 @@ int StarryCard::getLengthOfScrollBar(QImage screenshot)
         }
     }
     return 0;
+}
+
+int StarryCard::getPositionOfScrollBar(QImage screenshot)
+{
+    if(screenshot.width() < 950 || screenshot.height() < 596)
+    {
+        qDebug() << "截图尺寸异常，无法获取滚动条长度";
+        return 0;
+    }
+
+    // 目标颜色 #0A486F (RGB: 10, 72, 111)
+    QColor targetColor(10, 72, 111);
+    int targetRgb = targetColor.rgb();
+
+    for(int i = 0; i < 450; i++)
+    {
+        QColor pixelColor = screenshot.pixelColor(903, 108 + i);
+        if(pixelColor.rgb() != targetRgb)
+        {
+            return i;
+        }
+    }
 }
 
 // ================== 制卡功能实现 ==================
@@ -6422,26 +6670,4 @@ void StarryCard::performCardMaking()
     }
     
     addLog("制卡流程执行完成", LogType::Success);
-}
-
-int StarryCard::getPositionOfScrollBar(QImage screenshot)
-{
-    if(screenshot.width() < 950 || screenshot.height() < 596)
-    {
-        qDebug() << "截图尺寸异常，无法获取滚动条长度";
-        return 0;
-    }
-
-    // 目标颜色 #0A486F (RGB: 10, 72, 111)
-    QColor targetColor(10, 72, 111);
-    int targetRgb = targetColor.rgb();
-
-    for(int i = 0; i < 450; i++)
-    {
-        QColor pixelColor = screenshot.pixelColor(903, 108 + i);
-        if(pixelColor.rgb() != targetRgb)
-        {
-            return i;
-        }
-    }
 }
