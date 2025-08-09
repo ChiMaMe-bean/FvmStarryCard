@@ -1338,7 +1338,7 @@ QImage StarryCard::captureWindowByHandle(HWND hwnd, const QString& windowName)
     DeleteDC(hdcMemDC);
     ReleaseDC(hwnd, hdcWindow);
 
-    qDebug() << QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height);
+    // qDebug() << QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height);
     return image;
 }
 
@@ -3494,14 +3494,12 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     
     // 步骤1: 翻页到顶部
     qDebug() << "开始翻页到顶部";
-    addLog("正在翻页到顶部...", LogType::Info);
     
     // 循环点击上翻按钮直到翻到顶部
     int maxPageUpAttempts = 100;
     for (int attempt = 0; attempt < maxPageUpAttempts; ++attempt) {
         
         if (isPageAtTop()) {
-            addLog(QString("成功翻页到顶部，总共点击 %1 次").arg(attempt), LogType::Success);
             break;
         }
 
@@ -3509,13 +3507,12 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         sleepByQElapsedTimer(50);
         
         if (attempt == maxPageUpAttempts - 1) {
-            addLog("翻页到顶部失败", LogType::Warning);
+            qDebug() << "翻页到顶部失败";
         }
     }
     
     // 步骤2: 先识别当前页的10个四叶草
     qDebug() << "开始识别当前页的四叶草";
-    addLog("开始识别当前页的四叶草", LogType::Info);
     
     QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
     if (!screenshot.isNull()) {
@@ -3547,7 +3544,6 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     
     // 步骤3: 逐页向下翻页并只检查第十个位置
     qDebug() << "开始逐页向下翻页识别";
-    addLog("开始逐页向下翻页识别", LogType::Info);
     
     for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
         qDebug() << "翻页" << (pageIndex + 1) << "次后检查第十个位置";
@@ -3585,16 +3581,15 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         // 检查是否翻页到底部
         if (isPageAtBottom()) {
             qDebug() << "已翻页到底部，终止识别";
-            addLog("已翻页到底部，未找到匹配的四叶草", LogType::Warning);
             break;
         }
         else{
-            addLog(QString("第 %1 次翻页后检查完成，继续下一页").arg(pageIndex + 1), LogType::Info);
+            qDebug() << QString("第 %1 次翻页后检查完成，继续下一页").arg(pageIndex + 1);
         }
     }
     
     // 识别失败
-    addLog(QString("四叶草识别失败: %1").arg(cloverType), LogType::Error);
+    qDebug() << QString("四叶草识别失败: %1").arg(cloverType);
     return qMakePair(false, false);
 }
 
@@ -3606,7 +3601,6 @@ bool StarryCard::loadPageTemplates()
     
     if (pageUpTemplate.isNull()) {
         qDebug() << "无法加载翻页到顶部模板，路径:" << pageUpPath;
-        addLog("无法加载翻页到顶部模板", LogType::Error);
         return false;
     }
     
@@ -3619,7 +3613,6 @@ bool StarryCard::loadPageTemplates()
     
     if (pageDownTemplate.isNull()) {
         qDebug() << "无法加载翻页到底部模板，路径:" << pageDownPath;
-        addLog("无法加载翻页到底部模板", LogType::Error);
         return false;
     }
     
@@ -5617,84 +5610,93 @@ void StarryCard::loadSpiceConfig()
 
 void StarryCard::saveSpiceConfig()
 {
-    if (!spiceTable) return;
-    
+    if (!spiceTable)
+        return;
+
     QJsonObject root;
     QJsonArray spicesArray;
-    
+
     static const QStringList spiceTypes = {
         "天然香料", "上等香料", "秘制香料", "极品香料", "皇室香料",
-        "魔幻香料", "精灵香料", "天使香料", "圣灵香料"
-    };
+        "魔幻香料", "精灵香料", "天使香料", "圣灵香料"};
 
     // 添加边界检查
     int maxRows = qMin(9, spiceTypes.size());
-    for (int row = 0; row < maxRows; ++row) {
-        if (row >= spiceTypes.size()) {
+    for (int row = 0; row < maxRows; ++row)
+    {
+        if (row >= spiceTypes.size())
+        {
             qWarning() << "saveSpiceConfig: spiceTypes索引越界，跳过行" << row;
             break;
         }
-    
+
         QJsonObject spiceObj;
         spiceObj["name"] = spiceTypes[row];
-        
+
         // 获取是否使用状态
-        QWidget* useWidget = spiceTable->cellWidget(row, 1);
-        bool used = true;  // 默认为true
-        if (useWidget) {
-            QCheckBox* useCheckBox = useWidget->findChild<QCheckBox*>();
-            if (useCheckBox) {
+        QWidget *useWidget = spiceTable->cellWidget(row, 1);
+        bool used = true; // 默认为true
+        if (useWidget)
+        {
+            QCheckBox *useCheckBox = useWidget->findChild<QCheckBox *>();
+            if (useCheckBox)
+            {
                 used = useCheckBox->isChecked();
             }
         }
         spiceObj["used"] = used;
-        
+
         // 获取绑定状态
-        QWidget* bindWidget = spiceTable->cellWidget(row, 2);
+        QWidget *bindWidget = spiceTable->cellWidget(row, 2);
         bool bound = false;
-        if (bindWidget) {
-            QCheckBox* bindCheckBox = bindWidget->findChild<QCheckBox*>();
-            if (bindCheckBox) {
+        if (bindWidget)
+        {
+            QCheckBox *bindCheckBox = bindWidget->findChild<QCheckBox *>();
+            if (bindCheckBox)
+            {
                 bound = bindCheckBox->isChecked();
             }
         }
         spiceObj["bound"] = bound;
-        
+
         // 获取数量限制类型
-        QComboBox* limitCombo = qobject_cast<QComboBox*>(spiceTable->cellWidget(row, 3));
+        QComboBox *limitCombo = qobject_cast<QComboBox *>(spiceTable->cellWidget(row, 3));
         QString limitType = "无限制";
-        if (limitCombo) {
+        if (limitCombo)
+        {
             limitType = limitCombo->currentText();
         }
         spiceObj["limitType"] = limitType;
-        
+
         // 获取限制数量
-        QSpinBox* amountSpinBox = qobject_cast<QSpinBox*>(spiceTable->cellWidget(row, 4));
+        QSpinBox *amountSpinBox = qobject_cast<QSpinBox *>(spiceTable->cellWidget(row, 4));
         int amount = 0;
-        if (amountSpinBox) {
+        if (amountSpinBox)
+        {
             amount = amountSpinBox->value();
         }
         spiceObj["limitAmount"] = amount;
 
         spiceObj["spiceLevel"] = row + 1;
-        
+
         spicesArray.append(spiceObj);
-}
+    }
 
-root["spices"] = spicesArray;
+    root["spices"] = spicesArray;
 
-QJsonDocument doc(root);
+    QJsonDocument doc(root);
 
-QFile file("spice_config.json");
-if (!file.open(QIODevice::WriteOnly)) {
-    addLog("无法保存香料配置文件", LogType::Error);
-    return;
-}
+    QFile file("spice_config.json");
+    if (!file.open(QIODevice::WriteOnly))
+    {
+        addLog("无法保存香料配置文件", LogType::Error);
+        return;
+    }
 
-file.write(doc.toJson());
-file.close();
+    file.write(doc.toJson());
+    file.close();
 
-// qDebug() << "香料配置已保存";
+    // qDebug() << "香料配置已保存";
 }
 
 // 获取指定香料的绑定状态配置（只读操作，从配置文件读取）
@@ -6072,6 +6074,7 @@ void EnhancementWorker::performEnhancement()
                             }
                             scrollBarPosition = m_parent->getPositionOfScrollBar(screenshot);
                             emit logMessage(QString("更新滚动条位置: %1").arg(scrollBarPosition), LogType::Info);
+                            cardVector = m_parent->cardRecognizer->recognizeCards(screenshot, cardTypesCopy); // 重新识别卡片
                             break;
                         }
                     }
