@@ -1642,7 +1642,7 @@ void StarryCard::onCaptureAndRecognize()
         }
         
         sleepByQElapsedTimer(500);
-        QImage screenshotSpice = captureWindowByHandle(hwndGame,"合成屋");
+        QImage screenshotSpice = captureWindowByHandle(hwndGame,"主页面");
 
         if(checkSpicePosState(screenshotSpice, SPICE_AREA_HOUSE, "天然香料")) {
             addLog("合成屋香料区域天然香料识别成功", LogType::Success);
@@ -1660,7 +1660,7 @@ void StarryCard::onCaptureAndRecognize()
         }
 
         sleepByQElapsedTimer(500);
-        screenshotSpice = captureWindowByHandle(hwndGame,"合成屋");
+        screenshotSpice = captureWindowByHandle(hwndGame,"主页面");
 
         if(checkSpicePosState(screenshotSpice, SPICE_AREA_HOUSE, "皇室香料")) {
             addLog("合成屋香料区域皇室香料识别成功", LogType::Success);
@@ -3695,6 +3695,8 @@ void StarryCard::loadSynHousePosTemplates()
         ":/images/position/enhanceButtonReady.png",
         ":/images/position/enhanceScrollTop.png",
         ":/images/position/enhanceScrollBottom.png",
+        ":/images/position/produceReady.png",
+        ":/images/position/producing.png"
     };
 
     for (const QString& filePath : positionFiles) {
@@ -5960,7 +5962,7 @@ void EnhancementWorker::startEnhancement()
         // 全局强化配置已经在主线程中预加载
         
         // 分析强化配置，提取需要制作的卡片信息
-        analyzeEnhancementConfigForCardProduce();
+        getCardNeedProduce();
         
         // 创建本地副本避免跨线程访问QStringList
         QStringList cardTypesCopy = m_parent->requiredCardTypes;
@@ -6026,7 +6028,7 @@ void EnhancementWorker::performEnhancement()
         // 单卡强化时，将滚动条拖动到第一张低于最高等级的卡片位置
         if(cardTypesCopy.length() == 1)
         {
-            int maxLevel = min(m_parent->maxEnhancementLevel, 10); // 10星及以上的卡片会沉底，所以最大等级为10
+            int maxLevel = min(m_parent->maxEnhancementLevel, 9); // 10星及以上的卡片会沉底，所以最大等级为9
             emit logMessage(QString("最高强化等级: %1").arg(maxLevel), LogType::Info);
             int i = 0;
             while (i < 8)
@@ -6041,8 +6043,8 @@ void EnhancementWorker::performEnhancement()
                 QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
                 cardVector = m_parent->cardRecognizer->recognizeCards(screenshot, cardTypesCopy);
 
-                // 未找到卡片，或者cardVector最后一张卡片位于(6,6)且大于最高等级，滚动到下一页
-                if (cardVector.empty() || (cardVector.back().row == 6 && cardVector.back().col == 6 && cardVector.back().level >= maxLevel))
+                // 未找到卡片，或者cardVector最后一张卡片位于(6,6)且大于最高等级且小于10，滚动到下一页
+                if (cardVector.empty() || (cardVector.back().row == 6 && cardVector.back().col == 6 && cardVector.back().level >= maxLevel && cardVector.back().level < 10))
                 {
                     m_parent->fastMouseDrag(910, 120 + scrollBarPosition, singlePageScrollLength, true);
                     emit logMessage(QString("滚动到下一页: %1").arg(singlePageScrollLength), LogType::Info);
@@ -6104,7 +6106,16 @@ void EnhancementWorker::performEnhancement()
             // 返回值为FALSE，且未停止强化，说明未找到可以强化的卡片，启动制卡流程
             emit logMessage("未找到可以强化的卡片，启动制卡流程", LogType::Info);
             // 此处待实现制卡流程
-            m_parent->isEnhancing = false;
+            if(!performCardProduce(cardVector))
+            {
+                m_parent->isEnhancing = false;
+                emit showWarningMessage("错误", "制卡失败，强化已停止！");
+                emit logMessage("制卡失败，强化已停止！", LogType::Error);
+                return;
+            }
+            m_parent->goToPage(StarryCard::PageType::CardEnhance);
+            threadSafeSleep(100);
+            // m_parent->isEnhancing = false;
         }
     }
 
@@ -6302,15 +6313,186 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
     return FALSE;
 }
 
-// BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo>& cardVector)
-// {
-//     goToPage(PageType::CardProduce); // 进入制卡页面
+BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
+{
+    emit logMessage("开始执行卡片制作流程", LogType::Info);
+    
+    // 进入制卡页面
+    if (!m_parent->goToPage(StarryCard::PageType::CardProduce)) {
+        emit logMessage("无法进入制卡页面，制卡流程终止", LogType::Error);
+        return FALSE;
+    }
+    
+    threadSafeSleep(150);
+    
+    // 遍历g_cardProduceConfig中的每个制卡需求
+    for (const auto& produceItem : g_cardProduceConfig.produceItems) {
+        QString cardType = produceItem.cardType;
+        int targetLevel = produceItem.targetLevel;
+        bool needBound = produceItem.bound;
+        bool needUnbound = produceItem.unbound;
+        
+        emit logMessage(QString("处理制卡需求: %1 %2星 (绑定:%3, 不绑:%4)")
+            .arg(cardType).arg(targetLevel)
+            .arg(needBound ? "是" : "否")
+            .arg(needUnbound ? "是" : "否"), LogType::Info);
+        
+        // 特殊处理：0星卡片不使用香料
+        bool useSpice = (targetLevel >= 1 && targetLevel <= 9);
+        GlobalSpiceConfig::SpiceItem* spiceItem = nullptr;
+        
+        if (useSpice) {
+            // 检查该等级对应的香料是否启用
+            // 香料等级映射：1-天然香料, 2-上等香料, ..., 9-圣灵香料
+            spiceItem = g_spiceConfig.findSpiceByLevel(targetLevel);
+            if (!spiceItem) {
+                emit logMessage(QString("等级%1对应的香料未找到，跳过该制卡需求").arg(targetLevel), LogType::Warning);
+                continue;
+            }
+            
+            if (!spiceItem->used) {
+                emit logMessage(QString("等级%1对应的香料(%2)未启用，跳过该制卡需求")
+                    .arg(targetLevel).arg(spiceItem->name), LogType::Warning);
+                continue;
+            }
+            
+            emit logMessage(QString("使用香料: %1 (等级%2)").arg(spiceItem->name).arg(targetLevel), LogType::Info);
+        } else {
+            emit logMessage(QString("0星卡片制作，跳过香料使用"), LogType::Info);
+        }
+        
+        // 计算当前背包中该类型该等级的卡片数量
+        int currentCardCount = 0;
+        for (const auto& card : cardVector) {
+            if (card.name == cardType && card.level == targetLevel) {
+                currentCardCount++;
+            }
+        }
+        
+        emit logMessage(QString("背包中%1 %2星卡片数量: %3张").arg(cardType).arg(targetLevel).arg(currentCardCount), LogType::Info);
+        
+        // 计算需要制作的数量 (目标8张)
+        const int targetCount = 8;
+        int needProduceCount = targetCount - currentCardCount;
+        
+        if (needProduceCount <= 0) {
+            emit logMessage(QString("%1 %2星卡片数量充足，无需制作").arg(cardType).arg(targetLevel), LogType::Success);
+            continue;
+        }
+        
+        emit logMessage(QString("需要制作%1 %2星卡片: %3张").arg(cardType).arg(targetLevel).arg(needProduceCount), LogType::Info);
+        
+        // 确定绑定状态参数 (优先制作绑定卡片)
+        bool spice_bound = false;
+        bool spice_unbound = false;
+        
+        if (needBound && needUnbound) {
+            // 同时需要绑定和不绑定卡片时，优先制作绑定卡片
+            spice_bound = true;
+            spice_unbound = false;
+            emit logMessage(QString("同时需要绑定和不绑定卡片，优先制作绑定卡片"), LogType::Info);
+        } else if (needBound) {
+            spice_bound = true;
+            spice_unbound = false;
+        } else if (needUnbound) {
+            spice_bound = false;
+            spice_unbound = true;
+        } else {
+            // 两种状态都不需要，使用默认设置(不绑定)
+            spice_bound = false;
+            spice_unbound = true;
+            emit logMessage(QString("使用默认绑定状态(不绑定)"), LogType::Info);
+        }
 
-//     threadSafeSleep(100);
+        // 调用配方识别
+        m_parent->recipeRecognizer->setDPI(DPI);
+        m_parent->recipeRecognizer->setGameWindow(m_parent->hwndGame);
+        QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+        m_parent->recipeRecognizer->recognizeRecipeWithPaging(screenshot, cardType, m_parent->hwndGame);
+        
+        // 只有使用香料时才进行香料识别
+        if (useSpice) {
+            // 调用香料识别
+            emit logMessage(QString("识别香料: %1 (绑定:%2, 不绑:%3)")
+                .arg(spiceItem->name).arg(spice_bound ? "是" : "否").arg(spice_unbound ? "是" : "否"), LogType::Info);
+            
+            QPair<bool, bool> spiceResult = m_parent->recognizeSpice(spiceItem->name, spice_bound, spice_unbound);
+            if (!spiceResult.first) {
+                emit logMessage(QString("香料识别失败: %1，跳过该制卡需求").arg(spiceItem->name), LogType::Error);
+                continue;
+            }
+            
+            emit logMessage(QString("香料识别成功: %1").arg(spiceItem->name), LogType::Success);
+        } else {
+            emit logMessage(QString("0星卡片制作，直接进入制作流程"), LogType::Info);
+        }
+        
+        // 循环制作卡片
+        int successCount = 0;
+        for (int i = 0; i < needProduceCount; ++i) {
+            if (m_parent->isEnhancing == false)
+            {
+                emit logMessage("强化已停止，制卡流程终止", LogType::Error);
+                return FALSE;
+            }
+            emit logMessage(QString("开始制作第%1张%2 %3星卡片").arg(i + 1).arg(cardType).arg(targetLevel), LogType::Info);
+            
+            if (performCardProduceOnce()) {
+                successCount++;
+                emit logMessage(QString("第%1张卡片制作成功").arg(i + 1), LogType::Success);
+            } else {
+                emit logMessage(QString("第%1张卡片制作失败").arg(i + 1), LogType::Error);
+                // 制作失败时可以选择继续或终止，这里选择继续
+            }
+            
+            // 制作间隔
+            if (i < needProduceCount - 1) {
+                threadSafeSleep(10);
+            }
+        }
+        
+        emit logMessage(QString("%1 %2星卡片制作完成: 成功%3张，失败%4张")
+            .arg(cardType).arg(targetLevel).arg(successCount).arg(needProduceCount - successCount), LogType::Info);
+        
+        // 完成当前类型卡片制作后的等待时间
+        if (&produceItem != &g_cardProduceConfig.produceItems.last()) {
+            threadSafeSleep(200);
+        }
+    }
+    
+    emit logMessage("卡片制作流程执行完成", LogType::Success);
+    return TRUE;
+}
 
-//   }
+BOOL EnhancementWorker::performCardProduceOnce()
+{
+    QImage screenshot;
+    int waitTime = 0;
+    while(waitTime < 100)
+    {
+        screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+        if(m_parent->checkSynHousePosState(screenshot, m_parent->PRODUCE_READY_POS, "produceReady"))
+        {
+            m_parent->leftClickDPI(m_parent->hwndGame, 287, 427); // 点击制卡按钮
+            while(waitTime < 100)
+            {
+                screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+                if(m_parent->checkSynHousePosState(screenshot, m_parent->PRODUCE_READY_POS, "producing"))
+                {
+                    return TRUE;
+                }
+                threadSafeSleep(30); // 等待制卡开始才返回
+                waitTime++;
+            }
+            return FALSE;
+        }
+        threadSafeSleep(100);
+        waitTime++;
+    }
+    return FALSE;
+}
 
-void EnhancementWorker::analyzeEnhancementConfigForCardProduce()
+void EnhancementWorker::getCardNeedProduce()
 {
     // 清空之前的制卡配置
     g_cardProduceConfig.clear();
@@ -6373,18 +6555,17 @@ void EnhancementWorker::analyzeEnhancementConfigForCardProduce()
         
         // 检查主卡配置（如果需要特定等级的主卡）
         // 注意：通常主卡是从背包中选择现有的，但某些情况下可能需要制作特定等级的主卡
-        if (levelConfig.mainCardType != "无" && !levelConfig.mainCardType.isEmpty()) {
+        if (levelConfig.mainCardType != "无" && !levelConfig.mainCardType.isEmpty())
+        {
             // 这里可以根据具体需求决定是否需要制作主卡
             // 例如，如果主卡需要特定等级且背包中没有，则需要制作
             // 暂时注释掉，可根据实际需求启用
-            /*
+
             g_cardProduceConfig.addProduceItem(
                 levelConfig.mainCardType,
-                level - 1,  // 主卡通常比目标等级低1
+                level - 1, // 主卡通常比目标等级低1
                 levelConfig.mainCardBound,
-                levelConfig.mainCardUnbound
-            );
-            */
+                levelConfig.mainCardUnbound);
         }
     }
     
@@ -6538,6 +6719,7 @@ int StarryCard::getPositionOfScrollBar(QImage screenshot)
             return i;
         }
     }
+    return 0;
 }
 
 // ================== 制卡功能实现 ==================
@@ -6600,7 +6782,7 @@ bool StarryCard::recognizeMakeButton()
     }
     
     // 截取游戏窗口
-    QImage screenshot = captureWindowByHandle(hwndGame, "制作按钮识别");
+    QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
     if (screenshot.isNull()) {
         addLog("截取游戏窗口失败", LogType::Error);
         return false;
@@ -6653,7 +6835,7 @@ bool StarryCard::verifyRecipeTemplate(const QString& targetRecipe)
     }
     
     // 截取游戏窗口
-    QImage screenshot = captureWindowByHandle(hwndGame, "配方模板验证");
+    QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
     if (screenshot.isNull()) {
         addLog("截取游戏窗口失败", LogType::Error);
         return false;

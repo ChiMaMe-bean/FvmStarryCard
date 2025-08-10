@@ -603,11 +603,11 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
     qDebug() << "开始带翻页功能的配方识别...";
     
     // 确保输出目标配方模板的哈希值信息
-    // if (recipeTemplateHashes.contains(targetRecipe)) {
-    //     qDebug() << QString("目标配方 %1 模板哈希: %2").arg(targetRecipe).arg(recipeTemplateHashes[targetRecipe]);
-    // } else {
-    //     qDebug() << QString("警告: 目标配方 %1 模板未找到!").arg(targetRecipe);
-    // }
+    if (recipeTemplateHashes.contains(targetRecipe)) {
+        qDebug() << QString("目标配方 %1 模板哈希: %2").arg(targetRecipe).arg(recipeTemplateHashes[targetRecipe]);
+    } else {
+        qDebug() << QString("警告: 目标配方 %1 模板未找到!").arg(targetRecipe);
+    }
     
     // 配方区域参数
     const int recipeX = 555, recipeY = 88, recipeW = 365, recipeH = 200;

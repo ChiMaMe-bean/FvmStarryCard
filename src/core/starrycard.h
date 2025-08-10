@@ -84,7 +84,8 @@ private:
     void performEnhancement();
     BOOL performEnhancementOnce(const QVector<CardInfo>& cardVector);
     BOOL performCardProduce(const QVector<CardInfo>& cardVector);
-    void analyzeEnhancementConfigForCardProduce(); // 分析强化配置提取制卡需求
+    BOOL performCardProduceOnce();
+    void getCardNeedProduce(); // 分析强化配置提取制卡需求
     void threadSafeSleep(int ms);
 };
 
@@ -275,9 +276,17 @@ struct CardProduceConfig {
         produceItems = uniqueItems;
     }
     
-    // 排序制作项目
+    // 排序制作项目（按类型和等级从高到低排序）
     void sortProduceItems() {
-        std::sort(produceItems.begin(), produceItems.end());
+        std::sort(produceItems.begin(), produceItems.end(), [](const ProduceItem& a, const ProduceItem& b) {
+            // 首先按卡片类型排序
+            if (a.cardType != b.cardType) return a.cardType < b.cardType;
+            // 然后按等级从高到低排序
+            if (a.targetLevel != b.targetLevel) return a.targetLevel > b.targetLevel;
+            // 最后按绑定状态排序
+            if (a.bound != b.bound) return a.bound < b.bound;
+            return a.unbound < b.unbound;
+        });
     }
     
     // 获取指定卡片类型和等级的制作项目
@@ -590,6 +599,7 @@ private:
     const QRect MAIN_CARD_POS = QRect(269, 332, 32, 32); // 主卡位置
     const QRect SUB_CARD_POS = QRect(269, 261, 32, 32);  // 副卡位置
     const QRect INSURANCE_POS = QRect(382, 423, 20, 20); // 保险位置
+    const QRect PRODUCE_READY_POS = QRect(375, 364, 32, 32); // 制卡准备位置
     const QRect ENHANCE_BUTTON_POS = QRect(261, 425, 20, 20); // 强化按钮位置
     const QRect ENHANCE_SCROLL_BAR_BOTTOM = QRect(902, 526, 16, 16); // 强化滚动条底部位置
 
