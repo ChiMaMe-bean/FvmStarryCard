@@ -333,6 +333,56 @@ extern GlobalEnhancementConfig g_enhancementConfig;
 extern GlobalSpiceConfig g_spiceConfig;
 extern CardProduceConfig g_cardProduceConfig;
 
+// 制卡统计数据结构
+struct ProductionStatistics {
+    QMap<QString, int> spiceStats;    // 香料使用统计：香料名称 -> 使用次数
+    QMap<QString, int> recipeStats;   // 配方使用统计：配方名称 -> 使用次数
+    
+    // 添加香料使用记录
+    void addSpiceUsage(const QString& spiceName, int count = 5) {
+        if (spiceStats.contains(spiceName)) {
+            spiceStats[spiceName] += count;
+        } else {
+            spiceStats[spiceName] = count;
+        }
+    }
+    
+    // 添加配方使用记录
+    void addRecipeUsage(const QString& recipeName, int count = 1) {
+        if (recipeStats.contains(recipeName)) {
+            recipeStats[recipeName] += count;
+        } else {
+            recipeStats[recipeName] = count;
+        }
+    }
+    
+    // 获取香料总使用次数
+    int getTotalSpiceUsage() const {
+        int total = 0;
+        for (auto it = spiceStats.begin(); it != spiceStats.end(); ++it) {
+            total += it.value();
+        }
+        return total;
+    }
+    
+    // 获取配方总使用次数
+    int getTotalRecipeUsage() const {
+        int total = 0;
+        for (auto it = recipeStats.begin(); it != recipeStats.end(); ++it) {
+            total += it.value();
+        }
+        return total;
+    }
+    
+    // 清空统计数据
+    void clear() {
+        spiceStats.clear();
+        recipeStats.clear();
+    }
+};
+
+extern ProductionStatistics g_productionStats;
+
 // 卡片设置对话框
 class CardSettingDialog : public QDialog
 {
@@ -609,7 +659,7 @@ private:
         CardProduce     // 卡片制作页面
     };
 
-    BOOL goToPage(PageType targetPage, uint8_t retryCount = 20);
+    BOOL goToPage(PageType targetPage, uint8_t retryCount = 12);
     
     // 滚动条相关方法
     void fastMouseDrag(int startX, int startY, int distance, bool downward = true);
@@ -652,6 +702,11 @@ private slots:
     void loadSpiceConfig(); // 加载香料配置
     void saveSpiceConfig(); // 保存香料配置
     bool loadGlobalSpiceConfig(); // 加载全局香料配置（仅used=true的项目）
+    
+    // 统计相关方法
+    void loadProductionStatistics(); // 加载制卡统计数据
+    void saveProductionStatistics(); // 保存制卡统计数据
+    void addProductionRecord(const QString& spiceName, const QString& recipeName); // 添加制卡记录（仅累计，不保存）
     
 public:
     void updateRecipeCombo(); // 更新配方选择下拉框

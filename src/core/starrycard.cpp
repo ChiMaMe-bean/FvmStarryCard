@@ -71,6 +71,7 @@ const QPoint StarryCard::ENHANCE_SCROLL_TOP(910, 120);    // 强化滚动条顶�
 GlobalEnhancementConfig g_enhancementConfig;
 GlobalSpiceConfig g_spiceConfig;
 CardProduceConfig g_cardProduceConfig;
+ProductionStatistics g_productionStats;
 
 StarryCard::StarryCard(QWidget *parent)
     : QMainWindow(parent)
@@ -145,6 +146,9 @@ StarryCard::StarryCard(QWidget *parent)
     
     // 初始化香料识别模板
     loadSpiceTemplates();
+    
+    // 加载制卡统计数据
+    loadProductionStatistics();
     
     // 初始化位置模板
     loadPositionTemplates();
@@ -990,6 +994,9 @@ void StarryCard::onEnhancementFinished()
         // 清空缓存的卡片类型
         requiredCardTypes.clear();
         
+        // 保存制卡统计数据
+        saveProductionStatistics();
+        
         addLog("强化流程结束", LogType::Info);
     }
 }
@@ -1002,6 +1009,9 @@ void StarryCard::stopEnhancement()
         
         // 清空缓存的卡片类型
         requiredCardTypes.clear();
+        
+        // 保存制卡统计数据
+        saveProductionStatistics();
         
         addLog("停止强化流程", LogType::Warning);
     }
@@ -1475,13 +1485,6 @@ void StarryCard::onCaptureAndRecognize()
     
     QString debugMode = debugCombo->currentText();
     addLog(QString("执行调试功能: %1").arg(debugMode), LogType::Info);
-    
-    // if (debugMode == "位置跳转" || debugMode == "全部功能") {
-    //     // 执行位置跳转功能
-    //     addLog("开始位置跳转...", LogType::Info);
-    //     goToPage(PageType::CardEnhance); // 卡片强化
-    //     goToPage(PageType::CardProduce); // 卡片制作
-    // }
 
     if (debugMode == "滚动条测试" || debugMode == "全部功能") {
         addLog("开始滚动条测试...", LogType::Info);
@@ -3504,7 +3507,7 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         }
 
         leftClickDPI(hwndGame, 532, 539);
-        sleepByQElapsedTimer(50);
+        sleepByQElapsedTimer(150);
         
         if (attempt == maxPageUpAttempts - 1) {
             qDebug() << "翻页到顶部失败";
@@ -3550,29 +3553,38 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         
         // 点击下翻按钮
         leftClickDPI(hwndGame, 535, 563);
-        sleepByQElapsedTimer(50);
-        
-        // 只检查第十个位置（翻页后这个位置会更新）
-        QImage screenshotAfterPage = captureWindowByHandle(hwndGame,"主页面");
-        if (!screenshotAfterPage.isNull()) {
-            QRect cloverAreaAfterPage(33, 526, 490, 49);
-            QImage cloverStripAfterPage = screenshotAfterPage.copy(cloverAreaAfterPage);
-            
-            if (!cloverStripAfterPage.isNull()) {
-                // 检查第十个位置（索引为9）
-                int x_offset = 9 * 49;
-                QRect tenthCloverRect(x_offset, 0, 49, 49);
-                QImage tenthClover = cloverStripAfterPage.copy(tenthCloverRect);
-                
-                if (!tenthClover.isNull()) {
-                    int click_x = 33 + x_offset + 24;
-                    int click_y = 526 + 24;
-                    
-                    qDebug() << "第" << (pageIndex + 11) << "个四叶草识别";
-                    if (recognizeSingleClover(tenthClover, cloverType, click_x, click_y, clover_bound, clover_unbound)) {
-                        bool actualBindState = false;
-                        checkCloverBindState(tenthClover, clover_bound, clover_unbound, actualBindState);
-                        return qMakePair(true, actualBindState);
+        sleepByQElapsedTimer(150);
+
+        // 检查第十个位置（索引为9）
+        QRect cloverAreaAfterPage(33, 526, 490, 49);
+        int x_offset = 9 * 49;
+        QRect tenthCloverRect(x_offset, 0, 49, 49);
+        // 循环检查5次
+        for (int i = 0; i < 5; i++)
+        {
+            sleepByQElapsedTimer(70);
+            // 只检查第十个位置（翻页后这个位置会更新）
+            QImage screenshotAfterPage = captureWindowByHandle(hwndGame, "主页面");
+            if (!screenshotAfterPage.isNull())
+            {
+                QImage cloverStripAfterPage = screenshotAfterPage.copy(cloverAreaAfterPage);
+
+                if (!cloverStripAfterPage.isNull())
+                {
+                    QImage tenthClover = cloverStripAfterPage.copy(tenthCloverRect);
+
+                    if (!tenthClover.isNull())
+                    {
+                        int click_x = 33 + x_offset + 24;
+                        int click_y = 526 + 24;
+
+                        qDebug() << "第" << (pageIndex + 11) << "个四叶草识别";
+                        if (recognizeSingleClover(tenthClover, cloverType, click_x, click_y, clover_bound, clover_unbound))
+                        {
+                            bool actualBindState = false;
+                            checkCloverBindState(tenthClover, clover_bound, clover_unbound, actualBindState);
+                            return qMakePair(true, actualBindState);
+                        }
                     }
                 }
             }
@@ -3912,7 +3924,7 @@ bool StarryCard::checkCloverBindState(const QImage& cloverImage, bool clover_bou
     
     // 检查实际绑定状态
     actualBindState = isCloverBound(cloverImage);
-    addLog(QString("四叶草绑定状态: %1").arg(actualBindState ? "绑定" : "未绑定"), LogType::Info);
+    qDebug() << QString("四叶草绑定状态: %1").arg(actualBindState ? "绑定" : "未绑定");
     
     // 检查绑定状态是否符合要求
     bool bindStateMatches = false;
@@ -3928,7 +3940,7 @@ bool StarryCard::checkCloverBindState(const QImage& cloverImage, bool clover_bou
     }
     
     if (!bindStateMatches) {
-        addLog("四叶草绑定状态不符合要求，继续寻找", LogType::Info);
+        qDebug() << "四叶草绑定状态不符合要求，继续寻找";
     }
     
     return bindStateMatches;
@@ -3957,14 +3969,14 @@ bool StarryCard::recognizeSingleClover(const QImage& cloverImage, const QString&
     
     // 检查是否匹配
     if (similarity >= similarityThreshold) {
-        addLog(QString("找到匹配的四叶草: %1").arg(cloverType), LogType::Success);
+        qDebug() << QString("找到匹配的四叶草: %1").arg(cloverType);
         
         // 检查绑定状态
         bool actualBindState = false;
         if (checkCloverBindState(cloverImage, clover_bound, clover_unbound, actualBindState)) {
             // 点击四叶草中心位置
             leftClickDPI(hwndGame, positionX, positionY);
-            addLog(QString("点击四叶草中心位置: (%1, %2)").arg(positionX).arg(positionY), LogType::Success);
+            qDebug() << QString("点击四叶草中心位置: (%1, %2)").arg(positionX).arg(positionY);
             return true;
         }
     }
@@ -5936,6 +5948,114 @@ QList<QPair<QString, int>> StarryCard::calculateSpiceAllocation(int totalCardCou
     return sortedAllocation;
 }
 
+// ================================== 制卡统计功能 ==================================
+
+void StarryCard::loadProductionStatistics()
+{
+    QFile file("production_statistics.json");
+    if (!file.open(QIODevice::ReadOnly)) {
+        addLog("制卡统计文件不存在，创建新的统计记录", LogType::Info);
+        g_productionStats.clear();
+        return;
+    }
+    
+    QByteArray data = file.readAll();
+    file.close();
+    
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &error);
+    
+    if (error.error != QJsonParseError::NoError) {
+        addLog("制卡统计文件解析失败: " + error.errorString(), LogType::Error);
+        g_productionStats.clear();
+        return;
+    }
+    
+    if (!doc.isObject()) {
+        addLog("制卡统计文件格式错误", LogType::Error);
+        g_productionStats.clear();
+        return;
+    }
+    
+    QJsonObject root = doc.object();
+    
+    // 加载香料统计
+    if (root.contains("spiceStats")) {
+        QJsonObject spiceStatsObj = root["spiceStats"].toObject();
+        for (auto it = spiceStatsObj.begin(); it != spiceStatsObj.end(); ++it) {
+            QString spiceName = it.key();
+            int usageCount = it.value().toInt();
+            g_productionStats.spiceStats[spiceName] = usageCount;
+        }
+    }
+    
+    // 加载配方统计
+    if (root.contains("recipeStats")) {
+        QJsonObject recipeStatsObj = root["recipeStats"].toObject();
+        for (auto it = recipeStatsObj.begin(); it != recipeStatsObj.end(); ++it) {
+            QString recipeName = it.key();
+            int usageCount = it.value().toInt();
+            g_productionStats.recipeStats[recipeName] = usageCount;
+        }
+    }
+    
+    addLog(QString("制卡统计数据加载完成 - 香料种类: %1, 配方种类: %2")
+        .arg(g_productionStats.spiceStats.size())
+        .arg(g_productionStats.recipeStats.size()), LogType::Success);
+}
+
+void StarryCard::saveProductionStatistics()
+{
+    QJsonObject root;
+    
+    // 保存香料统计
+    QJsonObject spiceStatsObj;
+    for (auto it = g_productionStats.spiceStats.begin(); it != g_productionStats.spiceStats.end(); ++it) {
+        spiceStatsObj[it.key()] = it.value();
+    }
+    root["spiceStats"] = spiceStatsObj;
+    
+    // 保存配方统计
+    QJsonObject recipeStatsObj;
+    for (auto it = g_productionStats.recipeStats.begin(); it != g_productionStats.recipeStats.end(); ++it) {
+        recipeStatsObj[it.key()] = it.value();
+    }
+    root["recipeStats"] = recipeStatsObj;
+    
+    QJsonDocument doc(root);
+    
+    QFile file("production_statistics.json");
+    if (!file.open(QIODevice::WriteOnly)) {
+        addLog("无法保存制卡统计文件", LogType::Error);
+        return;
+    }
+    
+    file.write(doc.toJson());
+    file.close();
+    
+    addLog(QString("制卡统计数据已保存 - 香料总使用: %1, 配方总使用: %2")
+        .arg(g_productionStats.getTotalSpiceUsage())
+        .arg(g_productionStats.getTotalRecipeUsage()), LogType::Success);
+}
+
+void StarryCard::addProductionRecord(const QString& spiceName, const QString& recipeName)
+{
+    // 记录香料使用（每次制作使用5个香料）
+    if (!spiceName.isEmpty() && spiceName != "无香料") {
+        g_productionStats.addSpiceUsage(spiceName, 5);
+    }
+    
+    // 记录配方使用（每次制作使用1个配方）
+    if (!recipeName.isEmpty()) {
+        g_productionStats.addRecipeUsage(recipeName, 1);
+    }
+    
+    // 不再即时保存，仅累计数据
+    // addLog(QString("制卡统计记录: 香料=%1(+5), 配方=%2(+1)")
+    //     .arg(spiceName.isEmpty() ? "无" : spiceName)
+    //     .arg(recipeName), LogType::Info);
+}
+
 // ========== EnhancementWorker 类实现 ==========
 
 EnhancementWorker::EnhancementWorker(StarryCard* parent)
@@ -5990,6 +6110,7 @@ void EnhancementWorker::startEnhancement()
             m_parent->closeHealthTip();
             threadSafeSleep(1000);
         }
+        threadSafeSleep(1500); // 首次进入，等待游戏窗口加载
         
         performEnhancement();
     }
@@ -6109,7 +6230,7 @@ void EnhancementWorker::performEnhancement()
             if(!performCardProduce(cardVector))
             {
                 m_parent->isEnhancing = false;
-                emit showWarningMessage("错误", "制卡失败，强化已停止！");
+                // emit showWarningMessage("错误", "制卡失败，强化已停止！");
                 emit logMessage("制卡失败，强化已停止！", LogType::Error);
                 return;
             }
@@ -6382,26 +6503,56 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
         
         emit logMessage(QString("需要制作%1 %2星卡片: %3张").arg(cardType).arg(targetLevel).arg(needProduceCount), LogType::Info);
         
-        // 确定绑定状态参数 (优先制作绑定卡片)
+        // 以g_spiceConfig中的绑定状态为主来确定制作参数
         bool spice_bound = false;
         bool spice_unbound = false;
+        bool canProduce = false;
         
-        if (needBound && needUnbound) {
-            // 同时需要绑定和不绑定卡片时，优先制作绑定卡片
-            spice_bound = true;
-            spice_unbound = false;
-            emit logMessage(QString("同时需要绑定和不绑定卡片，优先制作绑定卡片"), LogType::Info);
-        } else if (needBound) {
-            spice_bound = true;
-            spice_unbound = false;
-        } else if (needUnbound) {
+        if (useSpice && spiceItem) {
+            // 获取香料配置的绑定状态
+            bool spiceRequiresBound = spiceItem->bound;
+            
+            emit logMessage(QString("香料配置 %1: %2").arg(spiceItem->name)
+                .arg(spiceRequiresBound ? "仅使用绑定香料" : "仅使用未绑定香料"), LogType::Info);
+            
+            // 检查香料配置与卡片需求的兼容性
+            if (spiceRequiresBound) {
+                // 香料要求绑定状态，检查是否需要绑定卡片
+                if (needBound) {
+                    spice_bound = true;
+                    spice_unbound = false;
+                    canProduce = true;
+                    emit logMessage(QString("匹配：香料要求绑定，卡片需要绑定"), LogType::Success);
+                } else {
+                    canProduce = false;
+                    emit logMessage(QString("不匹配：香料要求绑定，但卡片需要不绑定，跳过制作"), LogType::Warning);
+                }
+            } else {
+                // 香料要求不绑定状态，检查是否需要不绑定卡片
+                if (needUnbound) {
+                    spice_bound = false;
+                    spice_unbound = true;
+                    canProduce = true;
+                    emit logMessage(QString("匹配：香料要求不绑定，卡片需要不绑定"), LogType::Success);
+                } else {
+                    canProduce = false;
+                    emit logMessage(QString("不匹配：香料要求不绑定，但卡片需要绑定，跳过制作"), LogType::Warning);
+                }
+            }
+        }
+        else
+        {
+            // 0星卡片不使用香料，制作出的卡片一定是不绑定的
+            // 只有当需求是不绑定卡片时才进行制作
             spice_bound = false;
             spice_unbound = true;
-        } else {
-            // 两种状态都不需要，使用默认设置(不绑定)
-            spice_bound = false;
-            spice_unbound = true;
-            emit logMessage(QString("使用默认绑定状态(不绑定)"), LogType::Info);
+            canProduce = true;
+            emit logMessage(QString("0星卡片：不使用香料"), LogType::Info);
+        }
+
+        // 如果配置不匹配，跳过该制作需求
+        if (!canProduce) {
+            continue;
         }
 
         // 调用配方识别
@@ -6411,22 +6562,30 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
         m_parent->recipeRecognizer->recognizeRecipeWithPaging(screenshot, cardType, m_parent->hwndGame);
         
         // 只有使用香料时才进行香料识别
-        if (useSpice) {
+        if (useSpice)
+        {
             // 调用香料识别
             emit logMessage(QString("识别香料: %1 (绑定:%2, 不绑:%3)")
-                .arg(spiceItem->name).arg(spice_bound ? "是" : "否").arg(spice_unbound ? "是" : "否"), LogType::Info);
-            
+                                .arg(spiceItem->name)
+                                .arg(spice_bound ? "是" : "否")
+                                .arg(spice_unbound ? "是" : "否"),
+                            LogType::Info);
+
             QPair<bool, bool> spiceResult = m_parent->recognizeSpice(spiceItem->name, spice_bound, spice_unbound);
-            if (!spiceResult.first) {
+            if (!spiceResult.first)
+            {
                 emit logMessage(QString("香料识别失败: %1，跳过该制卡需求").arg(spiceItem->name), LogType::Error);
                 continue;
             }
-            
+
             emit logMessage(QString("香料识别成功: %1").arg(spiceItem->name), LogType::Success);
-        } else {
+            threadSafeSleep(500);
+        }
+        else
+        {
             emit logMessage(QString("0星卡片制作，直接进入制作流程"), LogType::Info);
         }
-        
+
         // 循环制作卡片
         int successCount = 0;
         for (int i = 0; i < needProduceCount; ++i) {
@@ -6435,19 +6594,30 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
                 emit logMessage("强化已停止，制卡流程终止", LogType::Error);
                 return FALSE;
             }
-            emit logMessage(QString("开始制作第%1张%2 %3星卡片").arg(i + 1).arg(cardType).arg(targetLevel), LogType::Info);
             
-            if (performCardProduceOnce()) {
-                successCount++;
-                emit logMessage(QString("第%1张卡片制作成功").arg(i + 1), LogType::Success);
-            } else {
-                emit logMessage(QString("第%1张卡片制作失败").arg(i + 1), LogType::Error);
-                // 制作失败时可以选择继续或终止，这里选择继续
+            // 检查香料区是否是对应的香料，不是则说明香料耗尽
+            screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+            if (m_parent->checkSpicePosState(screenshot, m_parent->SPICE_AREA_HOUSE, spiceItem->name))
+            {
+                if (performCardProduceOnce()) {
+                    successCount++;
+                    // 添加制卡统计记录
+                    QString spiceNameForStats = useSpice ? spiceItem->name : "无香料";
+                    m_parent->addProductionRecord(spiceNameForStats, cardType);
+                } else {
+                    // 制作失败时可以选择继续或终止，这里选择继续
+                    emit logMessage(QString("制卡失败: %1").arg(cardType), LogType::Error);
+                }
+                
+                // 制作间隔
+                if (i < needProduceCount - 1) {
+                    threadSafeSleep(20);
+                }
             }
-            
-            // 制作间隔
-            if (i < needProduceCount - 1) {
-                threadSafeSleep(10);
+            else
+            {
+                emit logMessage(QString("香料耗尽: %1").arg(spiceItem->name), LogType::Error);
+                break;
             }
         }
         
@@ -6456,7 +6626,7 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
         
         // 完成当前类型卡片制作后的等待时间
         if (&produceItem != &g_cardProduceConfig.produceItems.last()) {
-            threadSafeSleep(200);
+            threadSafeSleep(100);
         }
     }
     
