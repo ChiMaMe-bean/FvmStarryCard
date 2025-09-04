@@ -1,16 +1,17 @@
 #include "reciperecognizer.h"
-#include "../core/starrycard.h"    // 包含 LogType 的完整定义
 #include <QPainter>
 #include <QPen>
+#include <QFont>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDateTime>
 #include <QDebug>
 #include <chrono>
 #include <algorithm>
+#include <windows.h>
 
 // 构造函数
-RecipeRecognizer::RecipeRecognizer() : recipeTemplatesLoaded(false), DPI(96), gameWindow(nullptr)
+RecipeRecognizer::RecipeRecognizer() : recipeTemplatesLoaded(false), DPI(96)
 {
 }
 
@@ -19,66 +20,18 @@ RecipeRecognizer::~RecipeRecognizer()
 {
 }
 
-// 内部辅助方法（原来的回调函数现在变成直接实现）
-void RecipeRecognizer::addLog(const QString& message, LogType type)
+
+
+
+QImage RecipeRecognizer::captureWindowByHandle(void* hwnd, const QString& windowName)
 {
-    // 获取当前时间
-    QString timestamp = QTime::currentTime().toString("hh:mm:ss");
+    // 将void*转换为HWND
+    HWND hWnd = static_cast<HWND>(hwnd);
     
-    // 根据日志类型设置前缀
-    QString typePrefix;
-    switch (type) {
-        case LogType::Success:
-            typePrefix = "[SUCCESS]";
-            break;
-        case LogType::Warning:
-            typePrefix = "[WARNING]";
-            break;
-        case LogType::Error:
-            typePrefix = "[ERROR]";
-            break;
-        case LogType::Info:
-            typePrefix = "[INFO]";
-            break;
-        default:
-            typePrefix = "[LOG]";
-    }
-    
-    // 输出到调试控制台
-    qDebug() << QString("%1 %2 %3").arg(timestamp, typePrefix, message);
-}
-
-// 重载版本，默认使用 Info 类型
-void RecipeRecognizer::addLog(const QString& message)
-{
-    qDebug() << message;
-}
-
-bool RecipeRecognizer::leftClickDPI(HWND hwnd, int x, int y)
-{
-    double scaleFactor = static_cast<double>(DPI) / 96.0;
-    
-    // 计算DPI缩放后的坐标
-    int scaledX = static_cast<int>(x * scaleFactor);
-    int scaledY = static_cast<int>(y * scaleFactor);
-
-    // 发送鼠标消息
-    BOOL bResult = PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(scaledX, scaledY));
-    PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(scaledX, scaledY));
-    return bResult != 0;
-}
-
-QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowName)
-{
-    // 如果传入的句柄无效，尝试使用成员变量的句柄
-    if (!hwnd || !IsWindow(hwnd)) {
-        if (gameWindow && IsWindow(gameWindow)) {
-            hwnd = gameWindow;
-            qDebug() << QString("使用成员变量窗口句柄替代无效句柄: %1").arg(windowName);
-        } else {
-            qDebug() << QString("无效的窗口句柄且无备用句柄: %1").arg(windowName);
-            return QImage();
-        }
+    // 检查窗口句柄有效性
+    if (!hWnd || !IsWindow(hWnd)) {
+        qDebug() << QString("无效的窗口句柄: %1").arg(windowName);
+        return QImage();
     }
 
     // 获取窗口位置和大小
@@ -90,13 +43,13 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
         rect.right = 950;
         rect.bottom = 596;
     }
-    else if (!GetWindowRect(hwnd, &rect)) {
+    else if (!GetWindowRect(hWnd, &rect)) {
         qDebug() << QString("获取窗口位置失败: %1").arg(windowName);
         return QImage();
     }
     
     // 获取窗口DC
-    HDC hdcWindow = GetDC(hwnd);
+    HDC hdcWindow = GetDC(hWnd);
     if (!hdcWindow) {
         qDebug() << QString("获取窗口DC失败: %1").arg(windowName);
         return QImage();
@@ -106,7 +59,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
     HDC hdcMemDC = CreateCompatibleDC(hdcWindow);
     if (!hdcMemDC) {
         qDebug() << QString("创建兼容DC失败: %1").arg(windowName);
-        ReleaseDC(hwnd, hdcWindow);
+        ReleaseDC(hWnd, hdcWindow);
         return QImage();
     }
 
@@ -117,7 +70,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
     if (!hBitmap) {
         qDebug() << QString("创建兼容位图失败: %1").arg(windowName);
         DeleteDC(hdcMemDC);
-        ReleaseDC(hwnd, hdcWindow);
+        ReleaseDC(hWnd, hdcWindow);
         return QImage();
     }
 
@@ -129,7 +82,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
-        ReleaseDC(hwnd, hdcWindow);
+        ReleaseDC(hWnd, hdcWindow);
         return QImage();
     }
 
@@ -152,7 +105,7 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
         SelectObject(hdcMemDC, hOldBitmap);
         DeleteObject(hBitmap);
         DeleteDC(hdcMemDC);
-        ReleaseDC(hwnd, hdcWindow);
+        ReleaseDC(hWnd, hdcWindow);
         return QImage();
     }
 
@@ -160,20 +113,10 @@ QImage RecipeRecognizer::captureWindowByHandle(HWND hwnd, const QString& windowN
     SelectObject(hdcMemDC, hOldBitmap);
     DeleteObject(hBitmap);
     DeleteDC(hdcMemDC);
-    ReleaseDC(hwnd, hdcWindow);
+    ReleaseDC(hWnd, hdcWindow);
 
     qDebug() << QString("成功截取%1窗口图像：%2x%3").arg(windowName).arg(width).arg(height);
     return image;
-}
-
-void RecipeRecognizer::sleepByQElapsedTimer(int ms)
-{
-    QElapsedTimer timer;
-    timer.start();
-    while (timer.elapsed() < ms)
-    {
-        QCoreApplication::processEvents(); // 不停地处理事件，让程序保持响应
-    }
 }
 
 // 计算图像哈希值
@@ -539,7 +482,7 @@ QList<QPair<QPoint, double>> RecipeRecognizer::findBestMatchesInGrid(const QImag
 }
 
 // 在网格中识别配方
-void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe, HWND hwndGame)
+RecipeClickInfo RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe)
 {
     qDebug() << "开始配方识别...";
     
@@ -560,12 +503,12 @@ void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QSt
             qDebug() << QString("配方区域图像已保存: %1").arg(recipeImagePath);
         }
         
-        addLog(QString("选择匹配模板: %1").arg(targetRecipe));
+        qDebug() << QString("选择匹配模板: %1").arg(targetRecipe);
         
         // 获取分割线坐标
         QVector<int> xLines, yLines;
         getRecipeGridLines(recipeArea, xLines, yLines);
-        addLog(QString("检测到横线y: %1, 纵线x: %2").arg(yLines.size()).arg(xLines.size()));
+        qDebug() << QString("检测到横线y: %1, 纵线x: %2").arg(yLines.size()).arg(xLines.size());
         
         // 执行配方识别
         auto startTime = std::chrono::high_resolution_clock::now();
@@ -577,7 +520,7 @@ void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QSt
         // 保存最佳匹配的网格图像
         saveMatchDebugImages(matches, recipeArea, xLines, yLines, debugDir, timestamp, duration.count());
         
-        // 检查是否有相似度为1的配方，如果有则点击其中心位置
+        // 检查是否有相似度为1的配方，如果有则返回其中心位置坐标
         if (!matches.isEmpty() && matches[0].second >= 1.0) {
             QPoint bestPos = matches[0].first;
             double bestSim = matches[0].second;
@@ -590,23 +533,26 @@ void RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot, const QSt
             int screenX = 555 + centerX;
             int screenY = 88 + centerY;
             
-            // 点击配方中心位置
-            leftClickDPI(hwndGame, screenX, screenY);
-            qDebug() << QString("点击配方中心位置: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
+            qDebug() << QString("找到配方位置: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
+            return RecipeClickInfo(true, QPoint(screenX, screenY), bestSim);
         }
     }
+    
+    // 未找到匹配的配方
+    return RecipeClickInfo(false, QPoint(), 0.0);
 }
 
-// 带翻页功能的配方识别
-void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const QString& targetRecipe, HWND hwndGame)
+// 识别当前页面的配方（不包含翻页操作）
+RecipeClickInfo RecipeRecognizer::recognizeRecipeInCurrentPage(const QImage& screenshot, const QString& targetRecipe)
 {
-    qDebug() << "开始带翻页功能的配方识别...";
+    qDebug() << "开始配方识别（仅当前页面）...";
     
     // 确保输出目标配方模板的哈希值信息
     if (recipeTemplateHashes.contains(targetRecipe)) {
         qDebug() << QString("目标配方 %1 模板哈希: %2").arg(targetRecipe).arg(recipeTemplateHashes[targetRecipe]);
     } else {
         qDebug() << QString("警告: 目标配方 %1 模板未找到!").arg(targetRecipe);
+        return RecipeClickInfo(false, QPoint(), 0.0);
     }
     
     // 配方区域参数
@@ -614,113 +560,42 @@ void RecipeRecognizer::recognizeRecipeWithPaging(const QImage& screenshot, const
     const int recogH = 149; // 只识别上149像素
     QString appDir = QCoreApplication::applicationDirPath();
     QString debugDir = appDir + "/debug_recipe";
-    QDir dir(debugDir); if (!dir.exists()) dir.mkpath(debugDir);
+    QDir dir(debugDir); 
+    if (!dir.exists()) {
+        dir.mkpath(debugDir);
+    }
 
-    auto recognizeOnePage = [&](const QImage& pageImg, const QString& timestamp) -> QList<QPair<QPoint, double>> {
-        QImage recipeArea = pageImg.copy(recipeX, recipeY, recipeW, recipeH);
-        QImage recognitionArea = recipeArea.copy(0, 0, recipeW, recogH);
-        QVector<int> xLines, yLines;
-        getRecipeGridLines(recognitionArea, xLines, yLines);
-        auto startTime = std::chrono::high_resolution_clock::now();
-        
-        QList<QPair<QPoint, double>> matches = performGridHashMatching(recognitionArea, targetRecipe, xLines, yLines);
-        
-        auto endTime = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-        
-        // 保存调试图像
-        saveMatchDebugImages(matches, recipeArea, xLines, yLines, debugDir, timestamp, duration.count());
-        
-        return matches;
-    };
-
-    // 步骤1: 先识别当前页面的配方
-            qDebug() << "先识别当前页面的配方...";
+    // 识别当前页面的配方
+    QImage recipeArea = screenshot.copy(recipeX, recipeY, recipeW, recipeH);
+    QImage recognitionArea = recipeArea.copy(0, 0, recipeW, recogH);
+    QVector<int> xLines, yLines;
+    getRecipeGridLines(recognitionArea, xLines, yLines);
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
+    QList<QPair<QPoint, double>> matches = performGridHashMatching(recognitionArea, targetRecipe, xLines, yLines);
+    
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    
+    // 保存调试图像
     QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-    QList<QPair<QPoint, double>> currentMatches = recognizeOnePage(screenshot, timestamp);
+    saveMatchDebugImages(matches, recipeArea, xLines, yLines, debugDir, timestamp, duration.count());
     
     // 检查当前页面是否有相似度为1的配方在149区域内
-    if (!currentMatches.isEmpty() && currentMatches[0].second >= 1.0) {
-        QPoint bestPos = currentMatches[0].first;
-        if (bestPos.y() < recogH) {
-            double bestSim = currentMatches[0].second;
-            int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
-            int screenX = recipeX + centerX, screenY = recipeY + centerY;
-            leftClickDPI(hwndGame, screenX, screenY);
-            qDebug() << QString("在当前页面找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
-            return;
-        }
-    }
-    
-    // 步骤2: 当前页面没找到，翻到顶部重新识别
-            qDebug() << "当前页面未找到配方，翻到顶部重新识别...";
-    // 翻到顶
-            qDebug() << "翻到顶...";
-    // 修正：点击配方区域内的(355, 20)（相对于全屏为(555+355, 88+20)）
-    int clickTopX = recipeX + 355;
-    int clickTopY = recipeY + 20;
-    leftClickDPI(hwndGame, clickTopX, clickTopY);
-            qDebug() << QString("[翻页] 点击配方区域顶部: 全屏坐标(%1, %2)").arg(clickTopX).arg(clickTopY);
-    qDebug() << "[翻页] 点击配方区域顶部: 全屏坐标(" << clickTopX << "," << clickTopY << ")";
-    sleepByQElapsedTimer(300);
-
-    // 翻页到顶部后，重新截取游戏窗口
-    QImage topScreenshot = captureWindowByHandle(hwndGame,"主页面");
-    if (topScreenshot.isNull()) {
-        qDebug() << "翻页到顶部后截图失败";
-        return;
-    }
-            qDebug() << "翻页到顶部后重新截取游戏窗口";
-
-    QString timestamp2 = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-    QList<QPair<QPoint, double>> matches = recognizeOnePage(topScreenshot, timestamp2);
-    // 检查是否有相似度为1的配方在149区域内
-    bool foundRecipe = false;
     if (!matches.isEmpty() && matches[0].second >= 1.0) {
         QPoint bestPos = matches[0].first;
         if (bestPos.y() < recogH) {
-            foundRecipe = true;
             double bestSim = matches[0].second;
             int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
             int screenX = recipeX + centerX, screenY = recipeY + centerY;
-            leftClickDPI(hwndGame, screenX, screenY);
-            qDebug() << QString("找到配方并点击: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
-            return;
+            qDebug() << QString("在当前页面找到配方位置: (%1, %2), 相似度: %3").arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
+            return RecipeClickInfo(true, QPoint(screenX, screenY), bestSim);
         }
     }
     
-    // 翻页查找
-    if (!foundRecipe) {
-        qDebug() << "开始翻页查找配方...";
-        int pageCount = 0, maxPages = 21;
-        while (pageCount < maxPages) {
-            // 修正：点击配方区域内的(355, 190)（相对于全屏为(555+355, 88+190)）
-            int clickPageX = recipeX + 355;
-            int clickPageY = recipeY + 190;
-            leftClickDPI(hwndGame, clickPageX, clickPageY);
-            qDebug() << QString("[翻页] 点击配方区域底部: 全屏坐标(%1, %2)").arg(clickPageX).arg(clickPageY);
-            qDebug() << "[翻页] 点击配方区域底部: 全屏坐标(" << clickPageX << "," << clickPageY << ")";
-            sleepByQElapsedTimer(300);
-            pageCount++;
-            qDebug() << QString("翻到第 %1 页").arg(pageCount);
-            QImage newScreenshot = captureWindowByHandle(hwndGame,"主页面");
-            if (newScreenshot.isNull()) { qDebug() << "截图失败"; break; }
-            QString timestamp3 = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
-            QList<QPair<QPoint, double>> newMatches = recognizeOnePage(newScreenshot, timestamp3);
-            if (!newMatches.isEmpty() && newMatches[0].second >= 1.0) {
-                QPoint bestPos = newMatches[0].first;
-                if (bestPos.y() < recogH) {
-                    double bestSim = newMatches[0].second;
-                    int centerX = bestPos.x() + 24, centerY = bestPos.y() + 24;
-                    int screenX = recipeX + centerX, screenY = recipeY + centerY;
-                    leftClickDPI(hwndGame, screenX, screenY);
-                    qDebug() << QString("在第 %1 页找到配方并点击: (%2, %3), 相似度: %4").arg(pageCount).arg(screenX).arg(screenY).arg(QString::number(bestSim, 'f', 4));
-                    return;
-                }
-            }
-        }
-        qDebug() << "翻页完成，未找到目标配方";
-    }
+    // 未找到匹配的配方
+    qDebug() << "当前页面未找到目标配方";
+    return RecipeClickInfo(false, QPoint(), 0.0);
 }
 
 void RecipeRecognizer::drawDebugGridLines(QImage& debugImage, int startY) {

@@ -537,6 +537,10 @@ private:
     bool recognizeMakeButton(); // 识别制作按钮
     void performCardMaking(); // 执行制卡流程
     bool verifyRecipeTemplate(const QString& targetRecipe); // 验证配方模板匹配
+    
+    // 配方识别和点击的统一处理方法
+    bool performRecipeRecognitionAndClick(const QString& targetRecipe); // 执行配方识别和点击的完整流程
+    void performRecipePageNavigation(int clickX, int clickY); // 执行配方页面导航点击
 
     // 配方识别相关方法（已迁移到 RecipeRecognizer）
     QStringList getAvailableRecipeTypes() const; // 获取所有可用的配方类型

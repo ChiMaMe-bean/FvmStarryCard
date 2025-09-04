@@ -49,7 +49,6 @@
 #include <QtMath>
 #include <QScrollBar>
 #include <QRegularExpression>
-#include <algorithm>
 #include <map>
 
 // RGB颜色分量提取宏定义(rgb为0x00RRGGBB类型)
@@ -1583,11 +1582,16 @@ void StarryCard::onCaptureAndRecognize()
             
             // 设置RecipeRecognizer的参数
             recipeRecognizer->setDPI(DPI);
-            recipeRecognizer->setGameWindow(hwndGame);
-            
             addLog(QString("开始配方识别，游戏窗口句柄: %1, DPI: %2").arg(reinterpret_cast<quintptr>(hwndGame)).arg(DPI));
             
-            recipeRecognizer->recognizeRecipeWithPaging(screenshot, targetRecipe, hwndGame);
+            // 使用完整的配方识别和翻页逻辑（调试模式）
+            addLog("调试模式：开始配方识别和翻页流程", LogType::Info);
+            bool debugResult = performRecipeRecognitionAndClick(targetRecipe);
+            if (debugResult) {
+                addLog("调试模式：配方识别和点击流程完成", LogType::Success);
+            } else {
+                addLog("调试模式：配方识别和点击流程失败", LogType::Warning);
+            }
         }
     }
     
@@ -4212,6 +4216,108 @@ bool StarryCard::isSpiceBound(const QImage& spiceImage)
 
 // calculateRecipeHistogram 函数已迁移到 RecipeRecognizer 类
 
+// 执行配方识别和点击的完整流程
+bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
+{
+    if (!recipeRecognizer || !hwndGame || !IsWindow(hwndGame)) {
+        addLog("参数检查失败：配方识别器或游戏窗口无效", LogType::Error);
+        return false;
+    }
+    
+    // 配方区域翻页坐标
+    const int recipeTopX = 555 + 355;   // 翻页到顶部的点击坐标
+    const int recipeTopY = 88 + 20;
+    const int recipePageX = 555 + 355;  // 翻页的点击坐标  
+    const int recipePageY = 88 + 190;
+    const int maxPages = 21;            // 最大翻页次数
+    
+    // 步骤1: 先识别当前页面
+    QImage currentScreenshot = captureWindowByHandle(hwndGame, "配方识别");
+    if (currentScreenshot.isNull()) {
+        addLog("截图失败", LogType::Error);
+        return false;
+    }
+    
+    RecipeClickInfo currentResult = recipeRecognizer->recognizeRecipeInCurrentPage(currentScreenshot, targetRecipe);
+    if (currentResult.found) {
+        // 在当前页面找到配方，直接点击
+        leftClickDPI(hwndGame, currentResult.clickPosition.x(), currentResult.clickPosition.y());
+        addLog(QString("在当前页面找到配方并点击: (%1, %2), 相似度: %3")
+               .arg(currentResult.clickPosition.x())
+               .arg(currentResult.clickPosition.y())
+               .arg(QString::number(currentResult.similarity, 'f', 4)), LogType::Success);
+        return true;
+    }
+    
+    // 步骤2: 当前页面没找到，翻到顶部重新识别
+    addLog("当前页面未找到配方，翻到顶部重新识别...", LogType::Info);
+    leftClickDPI(hwndGame, recipeTopX, recipeTopY);
+    addLog(QString("点击翻页到顶部: (%1, %2)").arg(recipeTopX).arg(recipeTopY), LogType::Info);
+    sleepByQElapsedTimer(300);
+    
+    // 重新截图并识别
+    QImage topScreenshot = captureWindowByHandle(hwndGame, "配方识别");
+    if (topScreenshot.isNull()) {
+        addLog("翻页到顶部后截图失败", LogType::Error);
+        return false;
+    }
+    
+    RecipeClickInfo topResult = recipeRecognizer->recognizeRecipeInCurrentPage(topScreenshot, targetRecipe);
+    if (topResult.found) {
+        // 在顶部页面找到配方，直接点击
+        leftClickDPI(hwndGame, topResult.clickPosition.x(), topResult.clickPosition.y());
+        addLog(QString("在顶部页面找到配方并点击: (%1, %2), 相似度: %3")
+               .arg(topResult.clickPosition.x())
+               .arg(topResult.clickPosition.y())
+               .arg(QString::number(topResult.similarity, 'f', 4)), LogType::Success);
+        return true;
+    }
+    
+    // 步骤3: 逐页翻页查找
+    addLog("开始翻页查找配方...", LogType::Info);
+    for (int pageCount = 1; pageCount <= maxPages; ++pageCount) {
+        // 点击翻页
+        leftClickDPI(hwndGame, recipePageX, recipePageY);
+        addLog(QString("翻到第 %1 页，点击坐标: (%2, %3)").arg(pageCount).arg(recipePageX).arg(recipePageY), LogType::Info);
+        sleepByQElapsedTimer(300);
+        
+        // 截图并识别
+        QImage pageScreenshot = captureWindowByHandle(hwndGame, "配方识别");
+        if (pageScreenshot.isNull()) {
+            addLog(QString("第 %1 页截图失败").arg(pageCount), LogType::Warning);
+            continue;
+        }
+        
+        RecipeClickInfo pageResult = recipeRecognizer->recognizeRecipeInCurrentPage(pageScreenshot, targetRecipe);
+        if (pageResult.found) {
+            // 找到配方，点击
+            leftClickDPI(hwndGame, pageResult.clickPosition.x(), pageResult.clickPosition.y());
+            addLog(QString("在第 %1 页找到配方并点击: (%2, %3), 相似度: %4")
+                   .arg(pageCount)
+                   .arg(pageResult.clickPosition.x())
+                   .arg(pageResult.clickPosition.y())
+                   .arg(QString::number(pageResult.similarity, 'f', 4)), LogType::Success);
+            return true;
+        }
+    }
+    
+    // 所有页面都没找到配方
+    addLog(QString("翻页完成，未找到目标配方: %1").arg(targetRecipe), LogType::Error);
+    return false;
+}
+
+// 执行配方页面导航点击
+void StarryCard::performRecipePageNavigation(int clickX, int clickY)
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，无法执行页面导航", LogType::Error);
+        return;
+    }
+    
+    leftClickDPI(hwndGame, clickX, clickY);
+    addLog(QString("执行配方页面导航点击: (%1, %2)").arg(clickX).arg(clickY), LogType::Info);
+}
+
 QStringList StarryCard::getAvailableRecipeTypes() const
 {
     if (!recipeRecognizer) {
@@ -6555,11 +6661,13 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
             continue;
         }
 
-        // 调用配方识别
-        m_parent->recipeRecognizer->setDPI(DPI);
-        m_parent->recipeRecognizer->setGameWindow(m_parent->hwndGame);
-        QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
-        m_parent->recipeRecognizer->recognizeRecipeWithPaging(screenshot, cardType, m_parent->hwndGame);
+        // 调用配方识别和点击（使用StarryCard的统一方法）
+        if (!m_parent->performRecipeRecognitionAndClick(cardType)) {
+            emit logMessage(QString("配方识别和点击失败: %1，跳过制作").arg(cardType), LogType::Warning);
+            continue; // 跳过这个制作项目
+        }
+        
+        emit logMessage(QString("配方识别和点击成功: %1").arg(cardType), LogType::Success);
         
         // 只有使用香料时才进行香料识别
         if (useSpice)
@@ -6596,7 +6704,7 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
             }
             
             // 检查香料区是否是对应的香料，不是则说明香料耗尽
-            screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+            QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
             if (m_parent->checkSpicePosState(screenshot, m_parent->SPICE_AREA_HOUSE, spiceItem->name))
             {
                 if (performCardProduceOnce()) {
@@ -7082,7 +7190,6 @@ void StarryCard::performCardMaking()
     
     // 设置RecipeRecognizer的参数以确保缩放正确
     recipeRecognizer->setDPI(DPI);
-    recipeRecognizer->setGameWindow(hwndGame);
     addLog(QString("已设置制卡参数 - DPI: %1, 游戏窗口句柄: %2").arg(DPI).arg(reinterpret_cast<quintptr>(hwndGame)), LogType::Info);
     
     // 步骤2: 获取选择的配方
@@ -7097,7 +7204,10 @@ void StarryCard::performCardMaking()
     
     // 步骤3: 配方识别和点击
     addLog("开始配方识别...", LogType::Info);
-    recipeRecognizer->recognizeRecipeWithPaging(captureWindowByHandle(hwndGame, "制卡配方识别"), targetRecipe, hwndGame);
+    if (!performRecipeRecognitionAndClick(targetRecipe)) {
+        addLog("配方识别和点击失败，制卡流程终止", LogType::Error);
+        return;
+    }
     sleepByQElapsedTimer(200); // 等待时间
     
     // 步骤4: 验证配方模板匹配

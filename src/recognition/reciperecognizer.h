@@ -17,14 +17,22 @@
 #include <QThread>
 #include <QColor>
 #include <QRect>
-#include <QTime>
 #include <QElapsedTimer>
-#include <windows.h>
-#include <functional>
+#include <QWindow>  // Qt中包含Windows类型定义
 #include <chrono>
 
-// 前向声明 LogType 枚举（定义在 starrycard.h 中）
-enum class LogType;
+
+
+// 配方点击信息结构体
+struct RecipeClickInfo {
+    bool found = false;          // 是否找到配方
+    QPoint clickPosition;        // 点击位置坐标
+    double similarity = 0.0;     // 相似度
+    
+    RecipeClickInfo() = default;
+    RecipeClickInfo(bool f, const QPoint& pos, double sim) 
+        : found(f), clickPosition(pos), similarity(sim) {}
+};
 
 class RecipeRecognizer {
 public:
@@ -69,17 +77,13 @@ public:
     
     QPair<QString, double> recognizeRecipe(const QImage& recipeArea);
     QList<QPair<QPoint, double>> findBestMatchesInGrid(const QImage& recipeArea, const QString& targetRecipe);
-    void recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe, HWND hwndGame);
-    void recognizeRecipeWithPaging(const QImage& screenshot, const QString& targetRecipe, HWND hwndGame);
+    RecipeClickInfo recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe);
+    RecipeClickInfo recognizeRecipeInCurrentPage(const QImage& screenshot, const QString& targetRecipe);
     QStringList getAvailableRecipeTypes() const;
 
     // 设置DPI值
     void setDPI(int dpi) { DPI = dpi; }
     int getDPI() const { return DPI; }
-    
-    // 设置游戏窗口句柄（用于后续操作）
-    void setGameWindow(HWND hwnd) { gameWindow = hwnd; }
-    HWND getGameWindow() const { return gameWindow; }
 
     // 访问器方法
     bool isRecipeTemplatesLoaded() const { return recipeTemplatesLoaded; }
@@ -96,16 +100,9 @@ private:
     
     // DPI设置
     int DPI;
-    
-    // 游戏窗口句柄
-    HWND gameWindow;
 
-    // 内部辅助方法（原来的回调函数现在变成直接实现）
-    void addLog(const QString& message, LogType type);
-    void addLog(const QString& message);  // 重载版本提供默认行为
-    bool leftClickDPI(HWND hwnd, int x, int y);
-    QImage captureWindowByHandle(HWND hwnd, const QString& windowName);
-    void sleepByQElapsedTimer(int ms);
+    // 内部辅助方法
+    QImage captureWindowByHandle(void* hwnd, const QString& windowName);
 };
 
 #endif // RECIPERECOGNIZER_H 
