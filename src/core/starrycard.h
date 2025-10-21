@@ -515,6 +515,9 @@ private:
     bool recognizeSingleClover(const QImage& cloverImage, const QString& cloverType, int positionX, int positionY, 
                                bool clover_bound, bool clover_unbound);
     
+    // 动态识别方法 - 每10ms识别一次，匹配度<1时立即下一次，2秒超时
+    QPair<bool, bool> dynamicRecognizeClover(const QString& cloverType, bool clover_bound, bool clover_unbound);
+    
     // 香料识别相关方法
     bool loadSpiceTemplates();
     QPair<bool, bool> recognizeSpice(const QString& spiceType, bool spice_bound, bool spice_unbound);
@@ -523,6 +526,9 @@ private:
     bool checkSpiceBindState(const QImage& spiceImage, bool spice_bound, bool spice_unbound, bool& actualBindState);
     bool isSpiceBound(const QImage& spiceImage);
     QPair<bool, bool> getSpiceBindingConfig(const QString& spiceType) const;
+    
+    // 动态识别方法 - 每10ms识别一次，匹配度<1时立即下一次，2秒超时
+    QPair<bool, bool> dynamicRecognizeSpice(const QString& spiceType, bool spice_bound, bool spice_unbound);
     
     // 香料配置相关方法
     QList<QPair<QString, int>> calculateSpiceAllocation(int totalCardCount);

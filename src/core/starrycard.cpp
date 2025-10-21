@@ -3518,89 +3518,35 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         }
     }
     
-    // 步骤2: 先识别当前页的10个四叶草
-    qDebug() << "开始识别当前页的四叶草";
-    
-    QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
-    if (!screenshot.isNull()) {
-        QRect cloverArea(33, 526, 490, 49);
-        QImage cloverStrip = screenshot.copy(cloverArea);
-        
-        if (!cloverStrip.isNull()) {
-            // 识别当前页的10个四叶草
-            for (int i = 0; i < 10; ++i) {
-                int x_offset = i * 49;
-                QRect individualCloverRect(x_offset, 0, 49, 49);
-                QImage singleClover = cloverStrip.copy(individualCloverRect);
-                
-                if (singleClover.isNull()) {
-                    continue;
-                }
-                
-                int click_x = 33 + x_offset + 24;
-                int click_y = 526 + 24;
-                
-                if (recognizeSingleClover(singleClover, cloverType, click_x, click_y, clover_bound, clover_unbound)) {
-                    bool actualBindState = false;
-                    checkCloverBindState(singleClover, clover_bound, clover_unbound, actualBindState);
-                    return qMakePair(true, actualBindState);
-                }
-            }
-        }
+    // 步骤2: 使用动态识别识别当前页面
+    qDebug() << "开始动态识别当前页面的四叶草";
+    QPair<bool, bool> result = dynamicRecognizeClover(cloverType, clover_bound, clover_unbound);
+    if (result.first) {
+        qDebug() << "在当前页面找到目标四叶草";
+        return result;
     }
     
-    // 步骤3: 逐页向下翻页并只检查第十个位置
+    // 步骤3: 逐页向下翻页并使用动态识别
     qDebug() << "开始逐页向下翻页识别";
     
     for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
-        qDebug() << "翻页" << (pageIndex + 1) << "次后检查第十个位置";
+        qDebug() << QString("翻页 %1 次后动态识别").arg(pageIndex + 1);
         
         // 点击下翻按钮
         leftClickDPI(hwndGame, 535, 563);
-        sleepByQElapsedTimer(150);
-
-        // 检查第十个位置（索引为9）
-        QRect cloverAreaAfterPage(33, 526, 490, 49);
-        int x_offset = 9 * 49;
-        QRect tenthCloverRect(x_offset, 0, 49, 49);
-        // 循环检查5次
-        for (int i = 0; i < 5; i++)
-        {
-            sleepByQElapsedTimer(70);
-            // 只检查第十个位置（翻页后这个位置会更新）
-            QImage screenshotAfterPage = captureWindowByHandle(hwndGame, "主页面");
-            if (!screenshotAfterPage.isNull())
-            {
-                QImage cloverStripAfterPage = screenshotAfterPage.copy(cloverAreaAfterPage);
-
-                if (!cloverStripAfterPage.isNull())
-                {
-                    QImage tenthClover = cloverStripAfterPage.copy(tenthCloverRect);
-
-                    if (!tenthClover.isNull())
-                    {
-                        int click_x = 33 + x_offset + 24;
-                        int click_y = 526 + 24;
-
-                        qDebug() << "第" << (pageIndex + 11) << "个四叶草识别";
-                        if (recognizeSingleClover(tenthClover, cloverType, click_x, click_y, clover_bound, clover_unbound))
-                        {
-                            bool actualBindState = false;
-                            checkCloverBindState(tenthClover, clover_bound, clover_unbound, actualBindState);
-                            return qMakePair(true, actualBindState);
-                        }
-                    }
-                }
-            }
+        sleepByQElapsedTimer(200);
+        
+        // 使用动态识别识别当前页面
+        result = dynamicRecognizeClover(cloverType, clover_bound, clover_unbound);
+        if (result.first) {
+            qDebug() << QString("在第 %1 次翻页后找到目标四叶草").arg(pageIndex + 1);
+            return result;
         }
-
+        
         // 检查是否翻页到底部
         if (isPageAtBottom()) {
             qDebug() << "已翻页到底部，终止识别";
             break;
-        }
-        else{
-            qDebug() << QString("第 %1 次翻页后检查完成，继续下一页").arg(pageIndex + 1);
         }
     }
     
@@ -3959,35 +3905,158 @@ bool StarryCard::recognizeSingleClover(const QImage& cloverImage, const QString&
         return false;
     }
     
-    // 使用颜色直方图进行匹配
+    // 使用哈希值进行匹配
     QRect cloverROI(4, 4, 38, 24);
-    double similarity = 0.0;
-    if (cloverTemplateImages.contains(cloverType)) {
-        QImage templateImage = cloverTemplateImages[cloverType];
-        similarity = calculateColorHistogramSimilarity(cloverImage, templateImage, cloverROI);
-    }
-    
-    // 输出相似度用于调试
-    qDebug() << "四叶草与" << cloverType << "的相似度:" << QString::number(similarity, 'f', 4);
-    
-    // 设置相似度阈值
-    double similarityThreshold = 1.00; // 100%相似度
     
     // 检查是否匹配
-    if (similarity >= similarityThreshold) {
-        qDebug() << QString("找到匹配的四叶草: %1").arg(cloverType);
+    if (cloverTemplateHashes.contains(cloverType)) {
+        QString currentHash = calculateImageHash(cloverImage, cloverROI);
+        QString templateHash = cloverTemplateHashes[cloverType];
         
-        // 检查绑定状态
-        bool actualBindState = false;
-        if (checkCloverBindState(cloverImage, clover_bound, clover_unbound, actualBindState)) {
-            // 点击四叶草中心位置
-            leftClickDPI(hwndGame, positionX, positionY);
-            qDebug() << QString("点击四叶草中心位置: (%1, %2)").arg(positionX).arg(positionY);
-            return true;
+        if (currentHash == templateHash) {
+            qDebug() << QString("找到匹配的四叶草: %1").arg(cloverType);
+            
+            // 检查绑定状态
+            bool actualBindState = false;
+            if (checkCloverBindState(cloverImage, clover_bound, clover_unbound, actualBindState)) {
+                // 点击四叶草中心位置
+                leftClickDPI(hwndGame, positionX, positionY);
+                qDebug() << QString("点击四叶草中心位置: (%1, %2)").arg(positionX).arg(positionY);
+                return true;
+            }
         }
     }
     
     return false;
+}
+
+// 动态四叶草识别方法 - 每10ms识别一次，匹配度<1时立即返回进行翻页
+QPair<bool, bool> StarryCard::dynamicRecognizeClover(const QString& cloverType, bool clover_bound, bool clover_unbound)
+{
+    qDebug() << QString("开始动态四叶草识别: 目标=%1").arg(cloverType);
+    
+    // 检查四叶草模板是否加载
+    if (!cloverTemplatesLoaded || !cloverTemplateImages.contains(cloverType)) {
+        qDebug() << QString("四叶草模板 %1 未加载，无法进行动态识别").arg(cloverType);
+        return qMakePair(false, false);
+    }
+    
+    // 检查窗口有效性
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        qDebug() << "游戏窗口无效，无法进行四叶草识别";
+        return qMakePair(false, false);
+    }
+    
+    // 动态识别参数
+    const int RECOGNITION_INTERVAL_MS = 10;  // 10ms识别间隔
+    const int MAX_ATTEMPTS = 200;            // 最大尝试次数（约2秒）
+    
+    // 计时器和计数器
+    QElapsedTimer totalTimer;
+    totalTimer.start();
+    int attemptCount = 0;
+    
+    QString sessionTimestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+    qDebug() << QString("动态识别会话开始: %1").arg(sessionTimestamp);
+    
+    QRect cloverROI(4, 4, 38, 24);
+    
+    while (attemptCount < MAX_ATTEMPTS) {
+        attemptCount++;
+        
+        // 截取当前窗口图像
+        QElapsedTimer recognitionTimer;
+        recognitionTimer.start();
+        
+        QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+        if (screenshot.isNull()) {
+            qDebug() << QString("第%1次截图失败，继续尝试...").arg(attemptCount);
+            QElapsedTimer intervalTimer;
+            intervalTimer.start();
+            while (intervalTimer.elapsed() < RECOGNITION_INTERVAL_MS) {
+                QCoreApplication::processEvents();
+            }
+            continue;
+        }
+        
+        // 识别当前页面的10个四叶草
+        QRect cloverArea(33, 526, 490, 49);
+        QImage cloverStrip = screenshot.copy(cloverArea);
+        
+        if (!cloverStrip.isNull()) {
+            bool foundMatch = false;
+            bool isMatched = false;
+            bool actualBindState = false;
+            
+            // 检查当前页面的10个位置
+            for (int i = 0; i < 10; ++i) {
+                int x_offset = i * 49;
+                QRect individualCloverRect(x_offset, 0, 49, 49);
+                QImage singleClover = cloverStrip.copy(individualCloverRect);
+                
+                if (singleClover.isNull()) {
+                    continue;
+                }
+                
+                // 使用哈希值进行匹配（与香料、配方识别保持一致）
+                if (cloverTemplateHashes.contains(cloverType)) {
+                    QString currentHash = calculateImageHash(singleClover, cloverROI);
+                    QString templateHash = cloverTemplateHashes[cloverType];
+                    
+                    // 检查是否匹配
+                    if (currentHash == templateHash) {
+                        foundMatch = true;
+                        
+                        qDebug() << QString("位置%1的四叶草与%2匹配").arg(i).arg(cloverType);
+                        
+                        // 检查绑定状态
+                        if (checkCloverBindState(singleClover, clover_bound, clover_unbound, actualBindState)) {
+                            isMatched = true;
+                            
+                            // 计算点击位置
+                            int click_x = 33 + x_offset + 24;
+                            int click_y = 526 + 24;
+                            
+                            // 点击四叶草
+                            leftClickDPI(hwndGame, click_x, click_y);
+                            
+                            int recognitionDuration = recognitionTimer.elapsed();
+                            qDebug() << QString("动态识别成功! 位置=(%1,%2), 绑定状态=%3, 总耗时=%4ms, 尝试次数=%5")
+                                       .arg(click_x).arg(click_y)
+                                       .arg(actualBindState ? "绑定" : "未绑定")
+                                       .arg(totalTimer.elapsed())
+                                       .arg(attemptCount);
+                            
+                            return qMakePair(true, actualBindState);
+                        }
+                    }
+                }
+            }
+            
+            // 如果没有找到匹配的四叶草，立即返回进行翻页
+            if (!foundMatch || !isMatched) {
+                qDebug() << QString("第%1次识别未找到匹配四叶草或绑定状态不符，立即返回进行翻页").arg(attemptCount);
+                return qMakePair(false, false);
+            }
+        }
+        
+        int recognitionDuration = recognitionTimer.elapsed();
+        qDebug() << QString("第%1次识别: 耗时=%2ms, 总耗时=%3ms")
+                   .arg(attemptCount)
+                   .arg(recognitionDuration)
+                   .arg(totalTimer.elapsed());
+        
+        // 等待下一次识别
+        QElapsedTimer intervalTimer;
+        intervalTimer.start();
+        while (intervalTimer.elapsed() < RECOGNITION_INTERVAL_MS) {
+            QCoreApplication::processEvents();
+        }
+    }
+    
+    // 达到最大尝试次数
+    qDebug() << QString("动态识别达到最大尝试次数: %1, 总耗时: %2ms").arg(MAX_ATTEMPTS).arg(totalTimer.elapsed());
+    return qMakePair(false, false);
 }
 
 // ================== 香料识别功能实现 ==================
@@ -4039,7 +4108,7 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
     
     qDebug() << QString("开始识别香料: %1").arg(spiceType);
     
-    // 循环点击上翻按钮直到翻到顶部
+    // 步骤1: 循环点击上翻按钮直到翻到顶部
     for (int attempt = 0; attempt < 20; ++attempt) {
         if (isPageAtTop()) {
             qDebug() << QString("成功翻页到顶部，总共点击 %1 次").arg(attempt);
@@ -4054,74 +4123,29 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
         }
     }
     
-    // 步骤2: 识别当前位置的10个香料
-    qDebug() << "开始识别当前位置的香料";
-    
-        QImage screenshot = captureWindowByHandle(hwndGame,"主页面");
-        if (screenshot.isNull()) {
-        qDebug() << "截取游戏窗口失败";
-        return qMakePair(false, false);
-        }
-        
-        // 以坐标(33,526)为左上角，截取宽度为490像素，高度为49像素的区域
-        QRect spiceArea(33, 526, 490, 49);
-        QImage spiceStrip = screenshot.copy(spiceArea);
-        
-    for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
-        if (!spiceStrip.isNull()) {
-            // 将此区域在宽度上分成十张，每张图片49*49像素
-            for (int i = 0; i < 10; ++i) {
-                int x_offset = i * 49;
-                QRect individualSpiceRect(x_offset, 0, 49, 49);
-                QImage singleSpice = spiceStrip.copy(individualSpiceRect);
-                
-                if (singleSpice.isNull()) {
-                    continue;
-                }
-                
-                int click_x = 33 + x_offset + 24;  // 计算香料中心位置
-                int click_y = 526 + 24;
-                
-                if (recognizeSingleSpice(singleSpice, spiceType, click_x, click_y, spice_bound, spice_unbound)) {
-                    return qMakePair(true, isSpiceBound(singleSpice));
-                }
-            }
-        }
+    // 步骤2: 使用动态识别识别当前页面
+    qDebug() << "开始动态识别当前页面的香料";
+    QPair<bool, bool> result = dynamicRecognizeSpice(spiceType, spice_bound, spice_unbound);
+    if (result.first) {
+        qDebug() << "在当前页面找到目标香料";
+        return result;
     }
-
-    // 步骤3: 逐页向下翻页并只检查第十个位置
+    
+    // 步骤3: 逐页向下翻页并使用动态识别
     qDebug() << "开始逐页向下翻页识别";
     
     for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
-        qDebug() << QString("翻页 %1 次后检查第十个位置").arg(pageIndex + 1);
+        qDebug() << QString("翻页 %1 次后动态识别").arg(pageIndex + 1);
         
         // 点击下翻按钮
         leftClickDPI(hwndGame, 535, 563);
         sleepByQElapsedTimer(200);
-        sleepByQElapsedTimer(300);
         
-        // 只检查第十个位置（翻页后这个位置会更新）
-        QImage screenshotAfterPage = captureWindowByHandle(hwndGame,"主页面");
-        if (!screenshotAfterPage.isNull()) {
-            QRect spiceAreaAfterPage(33, 526, 490, 49);
-            QImage spiceStripAfterPage = screenshotAfterPage.copy(spiceAreaAfterPage);
-            
-            if (!spiceStripAfterPage.isNull()) {
-                // 检查第十个位置（索引为9）
-                int x_offset = 9 * 49;
-                QRect tenthSpiceRect(x_offset, 0, 49, 49);
-                QImage tenthSpice = spiceStripAfterPage.copy(tenthSpiceRect);
-                
-                if (!tenthSpice.isNull()) {
-                    int click_x = 33 + x_offset + 24;
-                    int click_y = 526 + 24;
-                    
-                    qDebug() << QString("第 %1 个香料识别").arg(pageIndex + 11);
-                    if (recognizeSingleSpice(tenthSpice, spiceType, click_x, click_y, spice_bound, spice_unbound)) {
-                        return qMakePair(true, isSpiceBound(tenthSpice));
-                    }
-                }
-            }
+        // 使用动态识别识别当前页面
+        result = dynamicRecognizeSpice(spiceType, spice_bound, spice_unbound);
+        if (result.first) {
+            qDebug() << QString("在第 %1 次翻页后找到目标香料").arg(pageIndex + 1);
+            return result;
         }
         
         // 检查是否翻页到底部
@@ -4212,6 +4236,126 @@ bool StarryCard::isSpiceBound(const QImage& spiceImage)
     
     // 如果该区域与绑定模板匹配度为1，返回真，否则返回假
     return (currentHash == bindStateTemplateHash);
+}
+
+// 动态香料识别方法 - 每10ms识别一次，匹配度<1时立即返回进行翻页
+QPair<bool, bool> StarryCard::dynamicRecognizeSpice(const QString& spiceType, bool spice_bound, bool spice_unbound)
+{
+    qDebug() << QString("开始动态香料识别: 目标=%1").arg(spiceType);
+    
+    // 检查香料模板是否加载
+    if (!spiceTemplatesLoaded || !spiceTemplateHashes.contains(spiceType)) {
+        qDebug() << QString("香料模板 %1 未加载，无法进行动态识别").arg(spiceType);
+        return qMakePair(false, false);
+    }
+    
+    // 检查窗口有效性
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        qDebug() << "游戏窗口无效，无法进行香料识别";
+        return qMakePair(false, false);
+    }
+    
+    // 动态识别参数
+    const int RECOGNITION_INTERVAL_MS = 10;  // 10ms识别间隔
+    const int MAX_ATTEMPTS = 200;            // 最大尝试次数（约2秒）
+    
+    // 计时器和计数器
+    QElapsedTimer totalTimer;
+    totalTimer.start();
+    int attemptCount = 0;
+    
+    QString sessionTimestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+    qDebug() << QString("动态识别会话开始: %1").arg(sessionTimestamp);
+    
+    while (attemptCount < MAX_ATTEMPTS) {
+        attemptCount++;
+        
+        // 截取当前窗口图像
+        QElapsedTimer recognitionTimer;
+        recognitionTimer.start();
+        
+        QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+        if (screenshot.isNull()) {
+            qDebug() << QString("第%1次截图失败，继续尝试...").arg(attemptCount);
+            QElapsedTimer intervalTimer;
+            intervalTimer.start();
+            while (intervalTimer.elapsed() < RECOGNITION_INTERVAL_MS) {
+                QCoreApplication::processEvents();
+            }
+            continue;
+        }
+        
+        // 识别当前页面的10个香料
+        QRect spiceArea(33, 526, 490, 49);
+        QImage spiceStrip = screenshot.copy(spiceArea);
+        
+        if (!spiceStrip.isNull()) {
+            bool foundMatch = false;
+            bool isMatched = false;
+            bool actualBindState = false;
+            
+            // 检查当前页面的10个位置
+            for (int i = 0; i < 10; ++i) {
+                int x_offset = i * 49;
+                QRect individualSpiceRect(x_offset, 0, 49, 49);
+                QImage singleSpice = spiceStrip.copy(individualSpiceRect);
+                
+                if (singleSpice.isNull()) {
+                    continue;
+                }
+                
+                // 检查是否匹配目标香料
+                QString currentHash = calculateImageHash(singleSpice, spiceTemplateRoi);
+                if (spiceTemplateHashes[spiceType] == currentHash) {
+                    foundMatch = true;
+                    
+                    // 检查绑定状态
+                    if (checkSpiceBindState(singleSpice, spice_bound, spice_unbound, actualBindState)) {
+                        isMatched = true;
+                        
+                        // 计算点击位置
+                        int click_x = 33 + x_offset + 24;
+                        int click_y = 526 + 24;
+                        
+                        // 点击香料
+                        leftClickDPI(hwndGame, click_x, click_y);
+                        
+                        int recognitionDuration = recognitionTimer.elapsed();
+                        qDebug() << QString("动态识别成功! 位置=(%1,%2), 绑定状态=%3, 总耗时=%4ms, 尝试次数=%5")
+                                   .arg(click_x).arg(click_y)
+                                   .arg(actualBindState ? "绑定" : "未绑定")
+                                   .arg(totalTimer.elapsed())
+                                   .arg(attemptCount);
+                        
+                        return qMakePair(true, actualBindState);
+                    }
+                }
+            }
+            
+            // 如果没有找到匹配的香料，立即返回进行翻页
+            if (!foundMatch || !isMatched) {
+                qDebug() << QString("第%1次识别未找到匹配香料或绑定状态不符，立即返回进行翻页").arg(attemptCount);
+                return qMakePair(false, false);
+            }
+        }
+        
+        int recognitionDuration = recognitionTimer.elapsed();
+        qDebug() << QString("第%1次识别: 耗时=%2ms, 总耗时=%3ms")
+                   .arg(attemptCount)
+                   .arg(recognitionDuration)
+                   .arg(totalTimer.elapsed());
+        
+        // 等待下一次识别
+        QElapsedTimer intervalTimer;
+        intervalTimer.start();
+        while (intervalTimer.elapsed() < RECOGNITION_INTERVAL_MS) {
+            QCoreApplication::processEvents();
+        }
+    }
+    
+    // 达到最大尝试次数
+    qDebug() << QString("动态识别达到最大尝试次数: %1, 总耗时: %2ms").arg(MAX_ATTEMPTS).arg(totalTimer.elapsed());
+    return qMakePair(false, false);
 }
 
 // ================== 配方识别功能实现 ==================
