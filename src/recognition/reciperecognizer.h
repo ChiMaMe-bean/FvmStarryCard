@@ -41,8 +41,17 @@ public:
     static constexpr int RECIPE_AREA_Y = 88;
     static constexpr int RECIPE_AREA_WIDTH = 365;
     static constexpr int RECIPE_AREA_HEIGHT = 200;
+    static constexpr int RECIPE_RECOGNITION_HEIGHT = 149; // 实际识别区域高度
     static constexpr int GRID_VERTICAL_START = 4;
     static constexpr int GRID_VERTICAL_STEP = 49;
+    
+    // 配方滚动条相关常量
+    static constexpr int RECIPE_SCROLL_X = 910;  // 滚动条X坐标
+    static constexpr int RECIPE_SCROLL_START_Y = 120; // 滚动条起始Y坐标
+    static constexpr int RECIPE_GRID_HEIGHT = 49;  // 配方格子高度
+    static constexpr int RECIPE_SCROLL_ROWS = 3;   // 每页显示3行完整配方（149/49≈3）
+    // 计算精确翻页距离：确保每次滚动正好翻3行配方
+    // 配方显示区域约149像素，每个配方格子49像素，所以每次滚动3*49=147像素
 
     // 构造函数
     RecipeRecognizer();
@@ -79,6 +88,10 @@ public:
     QList<QPair<QPoint, double>> findBestMatchesInGrid(const QImage& recipeArea, const QString& targetRecipe);
     RecipeClickInfo recognizeRecipeInGrid(const QImage& screenshot, const QString& targetRecipe);
     RecipeClickInfo recognizeRecipeInCurrentPage(const QImage& screenshot, const QString& targetRecipe);
+    
+    // 动态识别方法 - 每10ms识别一次，匹配度<1时立即下一次，2秒超时
+    RecipeClickInfo dynamicRecognizeRecipe(void* hwnd, const QString& windowName, const QString& targetRecipe);
+    
     QStringList getAvailableRecipeTypes() const;
 
     // 设置DPI值

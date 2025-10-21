@@ -656,6 +656,7 @@ private:
     const QRect PRODUCE_READY_POS = QRect(375, 364, 32, 32); // 制卡准备位置
     const QRect ENHANCE_BUTTON_POS = QRect(261, 425, 20, 20); // 强化按钮位置
     const QRect ENHANCE_SCROLL_BAR_BOTTOM = QRect(902, 526, 16, 16); // 强化滚动条底部位置
+    const QRect RECIPE_SCROLL_BAR_BOTTOM = QRect(902, 265, 16, 16);  // 配方滚动条底部位置
 
     // 页面跳转枚举
     enum class PageType {
@@ -667,9 +668,12 @@ private:
     
     // 滚动条相关方法
     void fastMouseDrag(int startX, int startY, int distance, bool downward = true);
+    void fastMouseDragForRecipe(int scrollBarPosition, int scrollBarLength, bool downward = true); // 配方专属滚动方法
     BOOL resetScrollBar();
+    BOOL resetRecipeScrollBar(); // 配方专属滚动条重置
     int getLengthOfScrollBar(QImage screenshot);
     int getPositionOfScrollBar(QImage screenshot);
+    int getRecipeScrollDistance(int scrollBarLength); // 计算配方翻页的精确滚动距离（基于滚动条长度）
 
     // 位置模板相关数据
     QHash<QString, QString> positionTemplateHashes; // 位置模板名称 -> 哈希值

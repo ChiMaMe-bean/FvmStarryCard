@@ -3711,6 +3711,8 @@ void StarryCard::loadSynHousePosTemplates()
         ":/images/position/enhanceButtonReady.png",
         ":/images/position/enhanceScrollTop.png",
         ":/images/position/enhanceScrollBottom.png",
+        ":/images/position/recipeScrollBottom.png",
+        ":/images/position/recipeScrollBottomLight.png",
         ":/images/position/produceReady.png",
         ":/images/position/producing.png"
     };
@@ -4224,21 +4226,9 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
         return false;
     }
     
-    // 配方区域翻页坐标
-    const int recipeTopX = 555 + 355;   // 翻页到顶部的点击坐标
-    const int recipeTopY = 88 + 20;
-    const int recipePageX = 555 + 355;  // 翻页的点击坐标  
-    const int recipePageY = 88 + 190;
-    const int maxPages = 21;            // 最大翻页次数
-    
-    // 步骤1: 先识别当前页面
-    QImage currentScreenshot = captureWindowByHandle(hwndGame, "配方识别");
-    if (currentScreenshot.isNull()) {
-        addLog("截图失败", LogType::Error);
-        return false;
-    }
-    
-    RecipeClickInfo currentResult = recipeRecognizer->recognizeRecipeInCurrentPage(currentScreenshot, targetRecipe);
+    // 步骤1: 使用动态识别当前页面
+    addLog("开始动态配方识别（当前页面）...", LogType::Info);
+    RecipeClickInfo currentResult = recipeRecognizer->dynamicRecognizeRecipe(hwndGame, "主页面", targetRecipe);
     if (currentResult.found) {
         // 在当前页面找到配方，直接点击
         leftClickDPI(hwndGame, currentResult.clickPosition.x(), currentResult.clickPosition.y());
@@ -4249,20 +4239,28 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
         return true;
     }
     
-    // 步骤2: 当前页面没找到，翻到顶部重新识别
-    addLog("当前页面未找到配方，翻到顶部重新识别...", LogType::Info);
-    leftClickDPI(hwndGame, recipeTopX, recipeTopY);
-    addLog(QString("点击翻页到顶部: (%1, %2)").arg(recipeTopX).arg(recipeTopY), LogType::Info);
-    sleepByQElapsedTimer(300);
-    
-    // 重新截图并识别
-    QImage topScreenshot = captureWindowByHandle(hwndGame, "配方识别");
-    if (topScreenshot.isNull()) {
-        addLog("翻页到顶部后截图失败", LogType::Error);
+    // 步骤2: 当前页面没找到，重置配方滚动条到顶部
+    addLog("当前页面未找到配方，重置配方滚动条到顶部...", LogType::Info);
+    if (!resetRecipeScrollBar()) {
+        addLog("重置配方滚动条失败", LogType::Error);
         return false;
     }
     
-    RecipeClickInfo topResult = recipeRecognizer->recognizeRecipeInCurrentPage(topScreenshot, targetRecipe);
+    // 获取滚动条信息
+    QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+    int scrollBarLength = getLengthOfScrollBar(screenshot);
+    int scrollBarPosition = getPositionOfScrollBar(screenshot);
+    
+    if (scrollBarLength <= 0) {
+        addLog("无法获取滚动条长度，无法进行配方翻页", LogType::Error);
+        return false;
+    }
+    
+    addLog(QString("配方滚动条信息: 长度=%1, 当前位置=%2").arg(scrollBarLength).arg(scrollBarPosition), LogType::Info);
+    
+    // 步骤3: 在顶部页面识别
+    addLog("开始动态配方识别（顶部页面）...", LogType::Info);
+    RecipeClickInfo topResult = recipeRecognizer->dynamicRecognizeRecipe(hwndGame, "主页面", targetRecipe);
     if (topResult.found) {
         // 在顶部页面找到配方，直接点击
         leftClickDPI(hwndGame, topResult.clickPosition.x(), topResult.clickPosition.y());
@@ -4273,22 +4271,37 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
         return true;
     }
     
-    // 步骤3: 逐页翻页查找
-    addLog("开始翻页查找配方...", LogType::Info);
-    for (int pageCount = 1; pageCount <= maxPages; ++pageCount) {
-        // 点击翻页
-        leftClickDPI(hwndGame, recipePageX, recipePageY);
-        addLog(QString("翻到第 %1 页，点击坐标: (%2, %3)").arg(pageCount).arg(recipePageX).arg(recipePageY), LogType::Info);
-        sleepByQElapsedTimer(300);
+    // 步骤4: 使用配方专属滚动逐页查找
+    addLog("开始使用配方专属滚动查找配方...", LogType::Info);
+    const int maxScrollPages = 10; // 最大滚动页数
+    
+    for (int pageCount = 1; pageCount <= maxScrollPages; ++pageCount) {
+        // 使用配方专属滚动方法，严格翻3行配方
+        fastMouseDragForRecipe(scrollBarPosition, scrollBarLength, true);
+        addLog(QString("配方翻页: 第 %1 页 (滚动条移动约%2像素，1/2长度)")
+               .arg(pageCount).arg(getRecipeScrollDistance(scrollBarLength)), LogType::Info);
         
-        // 截图并识别
-        QImage pageScreenshot = captureWindowByHandle(hwndGame, "配方识别");
-        if (pageScreenshot.isNull()) {
-            addLog(QString("第 %1 页截图失败").arg(pageCount), LogType::Warning);
-            continue;
+        // 等待滚动条位置变化（使用卡片的滚动条检测方法）
+        while (getPositionOfScrollBar(screenshot) == scrollBarPosition) {
+            sleepByQElapsedTimer(100);
+            screenshot = captureWindowByHandle(hwndGame, "主页面");
         }
         
-        RecipeClickInfo pageResult = recipeRecognizer->recognizeRecipeInCurrentPage(pageScreenshot, targetRecipe);
+        // 更新滚动条位置
+        int newScrollBarPosition = getPositionOfScrollBar(screenshot);
+        addLog(QString("滚动条位置变化: %1 -> %2").arg(scrollBarPosition).arg(newScrollBarPosition), LogType::Info);
+        
+        // 检查是否真正滚动了
+        if (newScrollBarPosition == scrollBarPosition) {
+            addLog(QString("第 %1 页滚动失败，滚动条位置未变化").arg(pageCount), LogType::Warning);
+            break;
+        }
+        
+        scrollBarPosition = newScrollBarPosition;
+        
+        // 使用动态识别
+        addLog(QString("开始动态配方识别（第 %1 页）...").arg(pageCount), LogType::Info);
+        RecipeClickInfo pageResult = recipeRecognizer->dynamicRecognizeRecipe(hwndGame, "主页面", targetRecipe);
         if (pageResult.found) {
             // 找到配方，点击
             leftClickDPI(hwndGame, pageResult.clickPosition.x(), pageResult.clickPosition.y());
@@ -4299,10 +4312,18 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
                    .arg(QString::number(pageResult.similarity, 'f', 4)), LogType::Success);
             return true;
         }
+        
+        // 检查是否已滚动到底部 - 检测两种底部模板中的任何一种
+        bool isAtBottom = checkSynHousePosState(screenshot, RECIPE_SCROLL_BAR_BOTTOM, "recipeScrollBottom") ||
+                         checkSynHousePosState(screenshot, RECIPE_SCROLL_BAR_BOTTOM, "recipeScrollBottomLight");
+        if (isAtBottom) {
+            addLog("已滚动到配方列表底部", LogType::Info);
+            break;
+        }
     }
     
     // 所有页面都没找到配方
-    addLog(QString("翻页完成，未找到目标配方: %1").arg(targetRecipe), LogType::Error);
+    addLog(QString("滚动完成，未找到目标配方: %1").arg(targetRecipe), LogType::Error);
     return false;
 }
 
@@ -6951,6 +6972,67 @@ BOOL StarryCard::resetScrollBar()
         i++;
     }
     return FALSE;
+}
+
+// 重置配方滚动条到顶端（专用于配方识别）
+BOOL StarryCard::resetRecipeScrollBar()
+{
+    leftClickDPI(hwndGame, 910, 112);
+    int i = 0;
+    QRect scrollTopRoi = QRect(902, 98, 16, 16);
+    while(i < 100)
+    {
+        if(checkSynHousePosState(captureWindowByHandle(hwndGame, "主页面"), scrollTopRoi, "enhanceScrollTop"))
+        {
+            addLog("配方滚动条已重置到顶部", LogType::Info);
+            return TRUE;
+        }
+        sleepByQElapsedTimer(50);
+        i++;
+    }
+    addLog("配方滚动条重置失败", LogType::Warning);
+    return FALSE;
+}
+
+// 计算配方翻页的精确滚动距离（基于滚动条长度）
+int StarryCard::getRecipeScrollDistance(int scrollBarLength)
+{
+    // 参考卡片强化的逻辑：
+    // - 卡片强化翻页距离 = scrollBarLength * 7 / 8 (翻7行)
+    // 
+    // 配方识别：
+    // - 每次翻 1/2 滚动条长度，确保适中翻页，有重叠避免漏掉配方
+    // - 滚动距离 = scrollBarLength * 1 / 2
+    
+    int scrollDistance = static_cast<int>(scrollBarLength * 1.0 / 2.0);
+    
+    qDebug() << QString("配方滚动距离计算: 滚动条长度=%1, 滚动距离=%2 (1/2长度)")
+                .arg(scrollBarLength).arg(scrollDistance);
+    return scrollDistance;
+}
+
+// 配方专属滚动方法：严格翻页，确保不漏配方
+void StarryCard::fastMouseDragForRecipe(int scrollBarPosition, int scrollBarLength, bool downward)
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        qDebug() << "无效的窗口句柄，无法执行配方滚动";
+        return;
+    }
+
+    // 获取配方精确滚动距离（基于滚动条长度）
+    int scrollDistance = getRecipeScrollDistance(scrollBarLength);
+    
+    // 使用固定的滚动起始位置和距离
+    int startX = RecipeRecognizer::RECIPE_SCROLL_X;
+    int startY = RecipeRecognizer::RECIPE_SCROLL_START_Y + scrollBarPosition;
+    
+    qDebug() << QString("配方滚动: 起始位置(%1,%2), 滚动条长度=%3, 滚动距离=%4, 方向=%5")
+                .arg(startX).arg(startY).arg(scrollBarLength).arg(scrollDistance).arg(downward ? "向下" : "向上");
+    
+    // 调用基础滚动方法
+    fastMouseDrag(startX, startY, scrollDistance, downward);
+    
+    addLog(QString("执行配方翻页: 滚动条移动%1像素 (1/2长度)").arg(scrollDistance), LogType::Info);
 }
 
 // 获取滚动条长度

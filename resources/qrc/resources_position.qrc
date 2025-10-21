@@ -18,6 +18,8 @@
         <file>images/position/PageUp.png</file>
         <file>images/position/produceReady.png</file>
         <file>images/position/producing.png</file>
+        <file>images/position/recipeScrollBottom.png</file>
+        <file>images/position/recipeScrollBottomLight.png</file>
         <file>images/position/subCardEmpty.png</file>
     </qresource>
 </RCC>

@@ -765,3 +765,115 @@ bool RecipeRecognizer::findFirstCompleteLine(const QImage& image, int& outY) {
     }
     return false;
 }
+
+// 动态配方识别方法 - 每10ms识别一次，匹配度<1时立即返回进行翻页
+RecipeClickInfo RecipeRecognizer::dynamicRecognizeRecipe(void* hwnd, const QString& windowName, const QString& targetRecipe)
+{
+    qDebug() << QString("开始动态配方识别: 目标=%1, 窗口=%2").arg(targetRecipe).arg(windowName);
+    
+    // 检查配方模板是否加载
+    if (!recipeTemplatesLoaded || !recipeTemplateHashes.contains(targetRecipe)) {
+        qDebug() << QString("配方模板 %1 未加载，无法进行动态识别").arg(targetRecipe);
+        return RecipeClickInfo(false, QPoint(), 0.0);
+    }
+    
+    // 动态识别参数
+    const int RECOGNITION_INTERVAL_MS = 10;  // 10ms识别间隔
+    const int MAX_ATTEMPTS = 200;            // 最大尝试次数（约2秒）
+    const double MIN_SIMILARITY = 1.0;      // 最小匹配度阈值
+    
+    // 计时器和计数器
+    QElapsedTimer totalTimer;
+    totalTimer.start();
+    int attemptCount = 0;
+    
+    // 创建调试目录
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString debugDir = appDir + "/debug_dynamic_recipe";
+    QDir dir(debugDir);
+    if (!dir.exists()) {
+        dir.mkpath(debugDir);
+    }
+    
+    QString sessionTimestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+    qDebug() << QString("动态识别会话开始: %1").arg(sessionTimestamp);
+    
+    QImage previousScreenshot; // 用于内存管理，覆盖前一次截图
+    
+    while (attemptCount < MAX_ATTEMPTS) {
+        attemptCount++;
+        
+        // 截取当前窗口图像（覆盖前一次截图以节省内存）
+        QImage currentScreenshot = captureWindowByHandle(hwnd, windowName);
+        previousScreenshot = QImage(); // 释放前一次截图内存
+        
+        if (currentScreenshot.isNull()) {
+            qDebug() << QString("第%1次截图失败，继续尝试...").arg(attemptCount);
+            // 使用类似sleepByQElapsedTimer的方式避免卡住
+            QElapsedTimer intervalTimer;
+            intervalTimer.start();
+            while (intervalTimer.elapsed() < RECOGNITION_INTERVAL_MS) {
+                QCoreApplication::processEvents(); // 保持程序响应
+            }
+            continue;
+        }
+        
+        // 执行配方识别
+        QElapsedTimer recognitionTimer;
+        recognitionTimer.start();
+        RecipeClickInfo result = recognizeRecipeInCurrentPage(currentScreenshot, targetRecipe);
+        int recognitionDuration = recognitionTimer.elapsed();
+        
+        qDebug() << QString("第%1次识别: 耗时=%2ms, 找到=%3, 相似度=%4, 总耗时=%5ms")
+                   .arg(attemptCount)
+                   .arg(recognitionDuration)
+                   .arg(result.found ? "是" : "否")
+                   .arg(QString::number(result.similarity, 'f', 4))
+                   .arg(totalTimer.elapsed());
+        
+        // 检查是否找到匹配度>=1的配方
+        if (result.found && result.similarity >= MIN_SIMILARITY) {
+            // 保存成功识别的调试截图
+            QString debugImagePath = debugDir + QString("/success_%1_attempt_%2_sim_%3.png")
+                                   .arg(sessionTimestamp)
+                                   .arg(attemptCount)
+                                   .arg(QString::number(result.similarity, 'f', 4));
+            if (currentScreenshot.save(debugImagePath)) {
+                qDebug() << QString("成功识别截图已保存: %1").arg(debugImagePath);
+            }
+            
+            qDebug() << QString("动态识别成功! 位置=(%1,%2), 相似度=%3, 总耗时=%4ms, 尝试次数=%5")
+                       .arg(result.clickPosition.x())
+                       .arg(result.clickPosition.y())
+                       .arg(QString::number(result.similarity, 'f', 4))
+                       .arg(totalTimer.elapsed())
+                       .arg(attemptCount);
+            
+            // 将当前截图保存到previousScreenshot以便后续清理
+            previousScreenshot = currentScreenshot;
+            return result;
+        }
+        
+        // 关键修改：如果相似度<1，立即返回失败，让外层进行翻页
+        if (result.similarity < MIN_SIMILARITY) {
+            qDebug() << QString("第%1次识别相似度<1，立即返回进行翻页操作").arg(attemptCount);
+            return RecipeClickInfo(false, QPoint(), result.similarity);
+        }
+        
+        // 如果有一定相似度但未达到阈值，继续等待
+        // 使用类似sleepByQElapsedTimer的方式避免卡住
+        QElapsedTimer intervalTimer;
+        intervalTimer.start();
+        while (intervalTimer.elapsed() < RECOGNITION_INTERVAL_MS) {
+            QCoreApplication::processEvents(); // 保持程序响应
+        }
+        
+        // 将当前截图保存到previousScreenshot以便下次覆盖
+        previousScreenshot = currentScreenshot;
+    }
+    
+    // 达到最大尝试次数
+    qDebug() << QString("动态识别达到最大尝试次数: %1, 总耗时: %2ms").arg(MAX_ATTEMPTS).arg(totalTimer.elapsed());
+    return RecipeClickInfo(false, QPoint(), 0.0);
+}
+
