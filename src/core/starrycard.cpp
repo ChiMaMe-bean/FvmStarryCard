@@ -956,6 +956,39 @@ void StarryCard::stopMouseTracking() {
 void StarryCard::startEnhancement()
 {
     if (!isEnhancing && enhancementBtn) {
+        // 检查线程状态，如果线程不可用则重新创建
+        if (!enhancementThread || !enhancementThread->isRunning()) {
+            addLog("重新创建强化线程", LogType::Info);
+            
+            // 清理旧线程
+            if (enhancementThread) {
+                if (enhancementThread->isRunning()) {
+                    enhancementThread->quit();
+                    enhancementThread->wait();
+                }
+                delete enhancementThread;
+                enhancementThread = nullptr;
+            }
+            if (enhancementWorker) {
+                delete enhancementWorker;
+                enhancementWorker = nullptr;
+            }
+            
+            // 重新创建线程和worker
+            enhancementThread = new QThread(this);
+            enhancementWorker = new EnhancementWorker(this);
+            enhancementWorker->moveToThread(enhancementThread);
+            
+            // 重新连接信号和槽
+            connect(this, &StarryCard::startEnhancementSignal, enhancementWorker, &EnhancementWorker::startEnhancement, Qt::QueuedConnection);
+            connect(enhancementWorker, &EnhancementWorker::logMessage, this, &StarryCard::addLog, Qt::QueuedConnection);
+            connect(enhancementWorker, &EnhancementWorker::showWarningMessage, this, &StarryCard::showWarningMessage, Qt::QueuedConnection);
+            connect(enhancementWorker, &EnhancementWorker::enhancementFinished, this, &StarryCard::onEnhancementFinished, Qt::QueuedConnection);
+            
+            // 启动线程
+            enhancementThread->start();
+        }
+        
         // 在主线程中读取UI控件的值并保存到成员变量
         if (maxEnhancementLevelSpinBox && minEnhancementLevelSpinBox) {
         maxEnhancementLevel = maxEnhancementLevelSpinBox->value();
@@ -1004,6 +1037,19 @@ void StarryCard::stopEnhancement()
 {
     if (enhancementBtn) {
         isEnhancing = false;
+        
+        // 强制终止线程 - 立即停止，不等待任何操作完成
+        if (enhancementThread && enhancementThread->isRunning()) {
+            addLog("强制终止强化线程...", LogType::Warning);
+            enhancementThread->terminate();
+            enhancementThread->wait(1000); // 等待最多1秒
+            addLog("强化线程已终止", LogType::Warning);
+            
+            // 线程被terminate后需要重新启动才能再次使用
+            enhancementThread->start();
+            addLog("强化线程已重新启动", LogType::Info);
+        }
+        
         enhancementBtn->setText("开始强化");
         
         // 清空缓存的卡片类型
@@ -6425,55 +6471,59 @@ void EnhancementWorker::performEnhancement()
             int i = 0;
             while (i < 8)
             {
-                i++;
-                if(i == 8)
-                {
-                    m_parent->isEnhancing = false;
-                    emit logMessage("未找到目标卡片，强化已停止！", LogType::Error);
-                    break;
-                }
                 QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
                 cardVector = m_parent->cardRecognizer->recognizeCards(screenshot, cardTypesCopy);
 
-                // 未找到卡片，或者cardVector最后一张卡片位于(6,6)且大于最高等级且小于10，滚动到下一页
-                if (cardVector.empty() || (cardVector.back().row == 6 && cardVector.back().col == 6 && cardVector.back().level >= maxLevel && cardVector.back().level < 10))
-                {
-                    m_parent->fastMouseDrag(910, 120 + scrollBarPosition, singlePageScrollLength, true);
-                    emit logMessage(QString("滚动到下一页: %1").arg(singlePageScrollLength), LogType::Info);
-                    while (m_parent->getPositionOfScrollBar(screenshot) == scrollBarPosition)
-                    {
-                        threadSafeSleep(100);
-                        screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
-                    }
-                    scrollBarPosition = m_parent->getPositionOfScrollBar(screenshot);
-                }
-                else
-                {
-                    for (const auto &card : cardVector)
-                    {
-                        if (card.level < maxLevel)
-                        {
-                            int row = card.row; // 卡片所在行
-                            if(row == 0) // 第一行卡片为最高等级-1，直接跳出循环
-                            {
-                                break;
-                            }
-                            int scrollLength = static_cast<int>(scrollBarLength / 8 * row);
-                            emit logMessage(QString("滚动到第%1行: %2").arg(row).arg(scrollLength), LogType::Info);
-                            m_parent->fastMouseDrag(910, 120 + scrollBarPosition, scrollLength, true);
-                            while (m_parent->getPositionOfScrollBar(screenshot) == scrollBarPosition)
-                            {
-                                threadSafeSleep(100);
-                                screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
-                            }
-                            scrollBarPosition = m_parent->getPositionOfScrollBar(screenshot);
-                            emit logMessage(QString("更新滚动条位置: %1").arg(scrollBarPosition), LogType::Info);
-                            cardVector = m_parent->cardRecognizer->recognizeCards(screenshot, cardTypesCopy); // 重新识别卡片
+                // 检查第一行(row=0)是否有符合条件的卡片（level < maxLevel）
+                bool firstRowHasValidCard = false;
+                if (!cardVector.empty()) {
+                    for (const auto &card : cardVector) {
+                        if (card.row == 0 && card.level < maxLevel) {
+                            firstRowHasValidCard = true;
+                            emit logMessage(QString("第一行找到符合条件的卡片: %1 %2星 位置(%3,%4)").arg(card.name).arg(card.level).arg(card.row).arg(card.col), LogType::Success);
                             break;
                         }
                     }
+                }
+                
+                // 如果第一行已经有符合条件的卡片，停止翻页
+                if (!cardVector.empty() && firstRowHasValidCard)
+                {
+                    emit logMessage("第一行已有符合条件的卡片，停止翻页", LogType::Success);
                     break;
                 }
+                
+                // 翻页条件：未找到卡片，或者第一行没有符合条件的卡片
+                i++;
+                if(i == 12)
+                {
+                    m_parent->isEnhancing = false;
+                    emit logMessage("已达最大翻页次数，未找到目标卡片，强化已停止！", LogType::Error);
+                    break;
+                }
+                
+                // 根据情况选择翻页距离
+                int scrollDistance;
+                if (cardVector.empty()) {
+                    // 完全没识别到目标卡片，快速翻整页
+                    scrollDistance = singlePageScrollLength;
+                    emit logMessage("未识别到任何目标卡片，快速翻页(整页)", LogType::Info);
+                } else {
+                    // 识别到卡片但第一行不符合条件，慢速翻1行
+                    scrollDistance = singleLineScrollLength;
+                    emit logMessage(QString("第一行没有符合条件的卡片(<=%1星)，慢速翻页(1行)").arg(maxLevel - 1), LogType::Info);
+                }
+                
+                m_parent->fastMouseDrag(910, 120 + scrollBarPosition, scrollDistance, true);
+                emit logMessage(QString("向下滚动: %1像素").arg(scrollDistance), LogType::Info);
+                
+                while (m_parent->getPositionOfScrollBar(screenshot) == scrollBarPosition)
+                {
+                    threadSafeSleep(100);
+                    screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+                }
+                scrollBarPosition = m_parent->getPositionOfScrollBar(screenshot);
+                emit logMessage(QString("翻页完成，滚动条位置: %1").arg(scrollBarPosition), LogType::Info);
             }
         }
         else
@@ -6542,8 +6592,16 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
             if (card.name == levelConfig.mainCardType && 
                 card.level == level - 1) {
                 // 检查绑定状态匹配
-                if ((levelConfig.mainCardBound && card.isBound) || 
-                    (levelConfig.mainCardUnbound && !card.isBound)) {
+                // 特殊处理：0星卡片不使用香料，无法控制绑定状态，忽略绑定要求
+                bool bindingMatches = false;
+                if (card.level == 0) {
+                    bindingMatches = true; // 0星卡片忽略绑定状态要求
+                } else {
+                    bindingMatches = (levelConfig.mainCardBound && card.isBound) || 
+                                    (levelConfig.mainCardUnbound && !card.isBound);
+                }
+                
+                if (bindingMatches) {
                     mainCard = card;
                     foundMainCard = true;
                     break;
@@ -6573,8 +6631,16 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
             if (card.name == levelConfig.subCardType && 
                 card.centerPosition != mainCard.centerPosition) { // 不能是主卡
                 // 检查绑定状态匹配
-                if ((levelConfig.subCardBound && card.isBound) || 
-                    (levelConfig.subCardUnbound && !card.isBound)) {
+                // 特殊处理：0星卡片不使用香料，无法控制绑定状态，忽略绑定要求
+                bool bindingMatches = false;
+                if (card.level == 0) {
+                    bindingMatches = true; // 0星卡片忽略绑定状态要求
+                } else {
+                    bindingMatches = (levelConfig.subCardBound && card.isBound) || 
+                                    (levelConfig.subCardUnbound && !card.isBound);
+                }
+                
+                if (bindingMatches) {
                     availableSubcards.push_back(card);
                 }
             }
@@ -6724,10 +6790,11 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
         bool needBound = produceItem.bound;
         bool needUnbound = produceItem.unbound;
         
-        emit logMessage(QString("处理制卡需求: %1 %2星 (绑定:%3, 不绑:%4)")
+        emit logMessage(QString("处理制卡需求: %1 %2星 (绑定:%3, 不绑:%4)%5")
             .arg(cardType).arg(targetLevel)
             .arg(needBound ? "是" : "否")
-            .arg(needUnbound ? "是" : "否"), LogType::Info);
+            .arg(needUnbound ? "是" : "否")
+            .arg(targetLevel == 0 ? " [0星卡片将忽略绑定状态要求]" : ""), LogType::Info);
         
         // 特殊处理：0星卡片不使用香料
         bool useSpice = (targetLevel >= 1 && targetLevel <= 9);
@@ -6754,14 +6821,26 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
         }
         
         // 计算当前背包中该类型该等级的卡片数量
+        // 对于0星卡片，忽略绑定状态；对于其他星级，需要考虑绑定状态
         int currentCardCount = 0;
         for (const auto& card : cardVector) {
             if (card.name == cardType && card.level == targetLevel) {
-                currentCardCount++;
+                // 0星卡片特殊处理：忽略绑定状态
+                if (targetLevel == 0) {
+                    currentCardCount++;
+                } else {
+                    // 其他星级：检查绑定状态是否匹配需求
+                    if ((needBound && card.isBound) || (needUnbound && !card.isBound)) {
+                        currentCardCount++;
+                    }
+                }
             }
         }
         
-        emit logMessage(QString("背包中%1 %2星卡片数量: %3张").arg(cardType).arg(targetLevel).arg(currentCardCount), LogType::Info);
+        emit logMessage(QString("背包中%1 %2星卡片数量: %3张%4")
+            .arg(cardType).arg(targetLevel).arg(currentCardCount)
+            .arg(targetLevel == 0 ? " (0星卡片统计忽略绑定状态)" : 
+                 needBound ? " (仅统计绑定卡片)" : " (仅统计不绑定卡片)"), LogType::Info);
         
         // 计算需要制作的数量 (目标8张)
         const int targetCount = 8;
@@ -6869,8 +6948,18 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
             }
             
             // 检查香料区是否是对应的香料，不是则说明香料耗尽
-            QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
-            if (m_parent->checkSpicePosState(screenshot, m_parent->SPICE_AREA_HOUSE, spiceItem->name))
+            // 对于0星卡片，跳过香料检查
+            bool canContinueProduce = true;
+            if (useSpice && spiceItem) {
+                QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
+                if (!m_parent->checkSpicePosState(screenshot, m_parent->SPICE_AREA_HOUSE, spiceItem->name))
+                {
+                    emit logMessage(QString("香料耗尽: %1").arg(spiceItem->name), LogType::Error);
+                    canContinueProduce = false;
+                }
+            }
+            
+            if (canContinueProduce)
             {
                 if (performCardProduceOnce()) {
                     successCount++;
@@ -6889,7 +6978,6 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
             }
             else
             {
-                emit logMessage(QString("香料耗尽: %1").arg(spiceItem->name), LogType::Error);
                 break;
             }
         }
