@@ -3545,6 +3545,14 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
     
     addLog(QString("开始识别四叶草: %1").arg(cloverType), LogType::Info);
     
+    // 添加重试机制：如果30次翻页都没找到，重试最多3次
+    const int maxRetries = 3;
+    for (int retryCount = 0; retryCount < maxRetries; ++retryCount) {
+        if (retryCount > 0) {
+            qDebug() << QString("四叶草识别重试第 %1 次...").arg(retryCount);
+            addLog(QString("四叶草识别重试第 %1 次...").arg(retryCount), LogType::Warning);
+        }
+        
     // 步骤1: 翻页到顶部
     qDebug() << "开始翻页到顶部";
     
@@ -3596,8 +3604,17 @@ QPair<bool, bool> StarryCard::recognizeClover(const QString& cloverType, bool cl
         }
     }
     
-    // 识别失败
-    qDebug() << QString("四叶草识别失败: %1").arg(cloverType);
+        // 当前轮次未找到四叶草
+        if (retryCount < maxRetries - 1) {
+            qDebug() << QString("第 %1 次尝试未找到四叶草，准备重试...").arg(retryCount + 1);
+            addLog(QString("第 %1 次尝试未找到四叶草，准备重试...").arg(retryCount + 1), LogType::Warning);
+            sleepByQElapsedTimer(300); // 重试前稍作等待
+        }
+    }
+    
+    // 所有重试都失败
+    qDebug() << QString("四叶草识别失败：经过 %1 次尝试仍未找到目标四叶草 %2").arg(maxRetries).arg(cloverType);
+    addLog(QString("四叶草识别失败：经过 %1 次尝试仍未找到目标四叶草 %2").arg(maxRetries).arg(cloverType), LogType::Error);
     return qMakePair(false, false);
 }
 
@@ -4154,6 +4171,13 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
     
     qDebug() << QString("开始识别香料: %1").arg(spiceType);
     
+    // 添加重试机制：如果30次翻页都没找到，重试最多3次
+    const int maxRetries = 3;
+    for (int retryCount = 0; retryCount < maxRetries; ++retryCount) {
+        if (retryCount > 0) {
+            qDebug() << QString("香料识别重试第 %1 次...").arg(retryCount);
+        }
+    
     // 步骤1: 循环点击上翻按钮直到翻到顶部
     for (int attempt = 0; attempt < 20; ++attempt) {
         if (isPageAtTop()) {
@@ -4175,6 +4199,10 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
     if (result.first) {
         qDebug() << "在当前页面找到目标香料";
         return result;
+    } else if (result.second) {
+        // 检测到香料数量不足，立即停止重试
+        qDebug() << "检测到香料数量不足，立即停止重试";
+        return qMakePair(false, false);
     }
     
     // 步骤3: 逐页向下翻页并使用动态识别
@@ -4192,6 +4220,10 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
         if (result.first) {
             qDebug() << QString("在第 %1 次翻页后找到目标香料").arg(pageIndex + 1);
             return result;
+        } else if (result.second) {
+            // 检测到香料数量不足，立即停止翻页和重试
+            qDebug() << "检测到香料数量不足，立即停止翻页和重试";
+            return qMakePair(false, false);
         }
         
         // 检查是否翻页到底部
@@ -4201,29 +4233,112 @@ QPair<bool, bool> StarryCard::recognizeSpice(const QString& spiceType, bool spic
         }
     }
     
-    // 识别失败
-    qDebug() << QString("香料识别失败: %1").arg(spiceType);
-    return qMakePair(false, false);
-}
-
-bool StarryCard::recognizeSingleSpice(const QImage& spiceImage, const QString& spiceType, int positionX, int positionY, 
-                                      bool spice_bound, bool spice_unbound)
-{
-    // 检查是否匹配
-    if (spiceTemplateHashes[spiceType] == calculateImageHash(spiceImage, spiceTemplateRoi)) {
-        qDebug() << QString("找到匹配的香料: %1").arg(spiceType);
-        
-        // 步骤3: 检查绑定状态
-        bool actualBindState = false;
-        if (checkSpiceBindState(spiceImage, spice_bound, spice_unbound, actualBindState)) {
-            // 步骤5: 点击该香料中心位置
-            leftClickDPI(hwndGame, positionX, positionY);
-            qDebug() << QString("点击香料中心位置: (%1, %2)").arg(positionX).arg(positionY);
-            return true;
+        // 当前轮次未找到香料
+        if (retryCount < maxRetries - 1) {
+            qDebug() << QString("第 %1 次尝试未找到香料，准备重试...").arg(retryCount + 1);
+            sleepByQElapsedTimer(300); // 重试前稍作等待
         }
     }
     
-    return false;
+    // 所有重试都失败
+    qDebug() << QString("香料识别失败：经过 %1 次尝试仍未找到目标香料 %2").arg(maxRetries).arg(spiceType);
+    return qMakePair(false, false);
+}
+
+int StarryCard::recognizeSingleSpice(const QImage& spiceImage, const QString& spiceType, int positionX, int positionY, 
+                                      bool spice_bound, bool spice_unbound)
+{
+    // 检查是否匹配
+    if (spiceTemplateHashes[spiceType] != calculateImageHash(spiceImage, spiceTemplateRoi)) {
+        return 0;  // 未找到，继续翻页
+    }
+    
+        qDebug() << QString("找到匹配的香料: %1").arg(spiceType);
+        
+    // 步骤1: 检查绑定状态
+        bool actualBindState = false;
+    if (!checkSpiceBindState(spiceImage, spice_bound, spice_unbound, actualBindState)) {
+        return 0;  // 绑定状态不匹配，继续翻页
+    }
+    
+    // 步骤2: 点击前，保存香料放置区域的当前状态（用于判断是否成功选中）
+    QImage screenshotBefore = captureWindowByHandle(hwndGame, "点击香料前");
+    QImage spiceAreaBefore = screenshotBefore.copy(SPICE_AREA_HOUSE);
+    
+    // 步骤3: 点击该香料中心位置
+            leftClickDPI(hwndGame, positionX, positionY);
+            qDebug() << QString("点击香料中心位置: (%1, %2)").arg(positionX).arg(positionY);
+    
+    // 步骤4: 动态检测香料放置区域变化（最多等待2秒）
+    const int maxWaitTime = 2000;
+    const int checkInterval = 50;
+    int elapsedTime = 0;
+    
+    QString hashBefore = calculateImageHash(spiceAreaBefore, QRect(0, 0, SPICE_AREA_HOUSE.width(), SPICE_AREA_HOUSE.height()));
+    bool spiceAreaChanged = false;
+    QString hashAfter;
+    
+    QElapsedTimer waitTimer;
+    waitTimer.start();
+    
+    while (elapsedTime < maxWaitTime) {
+        sleepByQElapsedTimer(checkInterval);
+        elapsedTime = waitTimer.elapsed();
+        
+        // 截图并检查放置区域
+        QImage screenshotCheck = captureWindowByHandle(hwndGame, "动态检测香料");
+        if (screenshotCheck.isNull()) {
+            continue;
+        }
+        
+        QImage spiceAreaCheck = screenshotCheck.copy(SPICE_AREA_HOUSE);
+        hashAfter = calculateImageHash(spiceAreaCheck, QRect(0, 0, SPICE_AREA_HOUSE.width(), SPICE_AREA_HOUSE.height()));
+        
+        if (hashBefore != hashAfter) {
+            spiceAreaChanged = true;
+            qDebug() << QString("检测到香料放置区域变化，耗时%1ms").arg(elapsedTime);
+            break;
+        }
+    }
+    
+    if (!spiceAreaChanged) {
+        qDebug() << QString("等待%1ms后，香料放置区域未变化").arg(elapsedTime);
+    }
+    
+    // 步骤5: 验证是否成功选中香料
+    QImage screenshotAfter = captureWindowByHandle(hwndGame, "点击香料后");
+    
+    // 情况1：检查被点击位置的香料图标是否消失（0<数量<5）
+    QRect clickedSpiceRect(positionX - spiceTemplateRoi.width() / 2, 
+                           positionY - spiceTemplateRoi.height() / 2, 
+                           spiceTemplateRoi.width(), 
+                           spiceTemplateRoi.height());
+    QImage clickedSpiceAfter = screenshotAfter.copy(clickedSpiceRect);
+    bool spiceDisappeared = (spiceTemplateHashes[spiceType] != calculateImageHash(clickedSpiceAfter, spiceTemplateRoi));
+    
+    // 情况2：使用动态检测的结果
+    // spiceAreaChanged 已经在动态检测中计算好了
+    
+    // 判断结果
+    if (spiceDisappeared) {
+        // 情况1：香料图标消失（0<数量<5，已选中最后几个）
+        qDebug() << QString("香料 %1 图标消失（0<数量<5），已选中最后几个，点击香料区取消选择").arg(spiceType);
+        int spiceAreaCenterX = SPICE_AREA_HOUSE.x() + SPICE_AREA_HOUSE.width() / 2;
+        int spiceAreaCenterY = SPICE_AREA_HOUSE.y() + SPICE_AREA_HOUSE.height() / 2;
+        leftClickDPI(hwndGame, spiceAreaCenterX, spiceAreaCenterY);
+        sleepByQElapsedTimer(200);
+        return 2;  // 香料数量不足，停止翻页
+    }
+    
+    if (!spiceAreaChanged) {
+        // 情况2：放置区域没变化（数量<5，根本没选上）
+        qDebug() << QString("香料 %1 数量不足5个（放置区域无变化，未选上）").arg(spiceType);
+        return 2;  // 香料数量不足，停止翻页
+    }
+    
+    // 成功选中香料
+    qDebug() << QString("成功选中香料: %1").arg(spiceType);
+    return 1;  // 成功
 }
 
 bool StarryCard::checkSpiceBindState(const QImage& spiceImage, bool spice_bound, bool spice_unbound, bool& actualBindState)
@@ -4336,10 +4451,6 @@ QPair<bool, bool> StarryCard::dynamicRecognizeSpice(const QString& spiceType, bo
         QImage spiceStrip = screenshot.copy(spiceArea);
         
         if (!spiceStrip.isNull()) {
-            bool foundMatch = false;
-            bool isMatched = false;
-            bool actualBindState = false;
-            
             // 检查当前页面的10个位置
             for (int i = 0; i < 10; ++i) {
                 int x_offset = i * 49;
@@ -4349,40 +4460,32 @@ QPair<bool, bool> StarryCard::dynamicRecognizeSpice(const QString& spiceType, bo
                 if (singleSpice.isNull()) {
                     continue;
                 }
-                
-                // 检查是否匹配目标香料
-                QString currentHash = calculateImageHash(singleSpice, spiceTemplateRoi);
-                if (spiceTemplateHashes[spiceType] == currentHash) {
-                    foundMatch = true;
-                    
-                    // 检查绑定状态
-                    if (checkSpiceBindState(singleSpice, spice_bound, spice_unbound, actualBindState)) {
-                        isMatched = true;
                         
                         // 计算点击位置
                         int click_x = 33 + x_offset + 24;
                         int click_y = 526 + 24;
                         
-                        // 点击香料
-                        leftClickDPI(hwndGame, click_x, click_y);
+                // 调用recognizeSingleSpice进行识别和点击验证
+                int result = recognizeSingleSpice(singleSpice, spiceType, click_x, click_y, spice_bound, spice_unbound);
                         
-                        int recognitionDuration = recognitionTimer.elapsed();
-                        qDebug() << QString("动态识别成功! 位置=(%1,%2), 绑定状态=%3, 总耗时=%4ms, 尝试次数=%5")
+                if (result == 1) {
+                    // 成功选中香料
+                    qDebug() << QString("动态识别成功! 位置=(%1,%2), 总耗时=%3ms, 尝试次数=%4")
                                    .arg(click_x).arg(click_y)
-                                   .arg(actualBindState ? "绑定" : "未绑定")
                                    .arg(totalTimer.elapsed())
                                    .arg(attemptCount);
-                        
-                        return qMakePair(true, actualBindState);
-                    }
+                    return qMakePair(true, true);
+                } else if (result == 2) {
+                    // 香料数量不足，停止翻页
+                    qDebug() << QString("香料数量不足(<5个)，停止识别");
+                    return qMakePair(false, true);  // 第二个参数表示"数量不足"
                 }
+                // result == 0: 未找到或绑定状态不匹配，继续检查下一个位置
             }
             
-            // 如果没有找到匹配的香料，立即返回进行翻页
-            if (!foundMatch || !isMatched) {
-                qDebug() << QString("第%1次识别未找到匹配香料或绑定状态不符，立即返回进行翻页").arg(attemptCount);
+            // 当前页面10个位置都检查完毕，未找到匹配的香料，立即返回进行翻页
+            qDebug() << QString("第%1次识别当前页面未找到匹配香料，立即返回进行翻页").arg(attemptCount);
                 return qMakePair(false, false);
-            }
         }
         
         int recognitionDuration = recognitionTimer.elapsed();
@@ -4414,6 +4517,13 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
     if (!recipeRecognizer || !hwndGame || !IsWindow(hwndGame)) {
         addLog("参数检查失败：配方识别器或游戏窗口无效", LogType::Error);
         return false;
+    }
+    
+    // 添加重试机制：如果10页都没找到，重试最多3次
+    const int maxRetries = 3;
+    for (int retryCount = 0; retryCount < maxRetries; ++retryCount) {
+        if (retryCount > 0) {
+            addLog(QString("配方识别重试第 %1 次...").arg(retryCount), LogType::Warning);
     }
     
     // 步骤1: 使用动态识别当前页面
@@ -4464,6 +4574,7 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
     // 步骤4: 使用配方专属滚动逐页查找
     addLog("开始使用配方专属滚动查找配方...", LogType::Info);
     const int maxScrollPages = 10; // 最大滚动页数
+        bool foundInScroll = false;
     
     for (int pageCount = 1; pageCount <= maxScrollPages; ++pageCount) {
         // 使用配方专属滚动方法，严格翻3行配方
@@ -4512,8 +4623,15 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
         }
     }
     
-    // 所有页面都没找到配方
-    addLog(QString("滚动完成，未找到目标配方: %1").arg(targetRecipe), LogType::Error);
+        // 当前轮次未找到配方
+        if (retryCount < maxRetries - 1) {
+            addLog(QString("第 %1 次尝试未找到配方，准备重试...").arg(retryCount + 1), LogType::Warning);
+            sleepByQElapsedTimer(300); // 重试前稍作等待
+        }
+    }
+    
+    // 所有重试都失败
+    addLog(QString("配方识别失败：经过 %1 次尝试仍未找到目标配方 %2").arg(maxRetries).arg(targetRecipe), LogType::Error);
     return false;
 }
 
@@ -6699,9 +6817,9 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
                     emit logMessage(QString("成功添加四叶草：%1 (%2)").arg(levelConfig.clover)
                           .arg(cloverResult.second ? "绑定" : "未绑定"), LogType::Success);
                 } else {
-                    emit logMessage(QString("未找到四叶草：%1").arg(levelConfig.clover), LogType::Warning);
+                    emit logMessage(QString("四叶草识别失败: %1四叶草已用完，强化流程终止").arg(levelConfig.clover), LogType::Error);
+                    emit showWarningMessage("四叶草已用完", QString("未找到四叶草 %1，可能已用完！强化流程已停止。").arg(levelConfig.clover));
                     m_parent->isEnhancing = false;
-                    emit showWarningMessage("错误", "未找到四叶草，强化已停止！");
                     return FALSE;
                 }
             }
@@ -6775,13 +6893,313 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
 {
     emit logMessage("开始执行卡片制作流程", LogType::Info);
     
-    // 进入制卡页面
+    // ========== 阶段1：制卡前预检 ==========
+    emit logMessage("=== 阶段1：制卡前预检 ===", LogType::Info);
+    
+    // 1.1 统计所有制卡需求和需要的香料
+    QMap<QString, int> spiceRequirements;  // 香料名 -> 需要制作的卡片数量
+    QStringList allRequiredSpices;
+    
+    emit logMessage("统计制卡需求...", LogType::Info);
+    for (const auto& produceItem : g_cardProduceConfig.produceItems) {
+        QString cardType = produceItem.cardType;
+        int targetLevel = produceItem.targetLevel;
+        bool needBound = produceItem.bound;
+        bool needUnbound = produceItem.unbound;
+        
+        // 特殊处理：0星卡片不使用香料
+        bool useSpice = (targetLevel >= 1 && targetLevel <= 9);
+        if (!useSpice) {
+            continue;
+        }
+        
+        // 检查该等级对应的香料
+        GlobalSpiceConfig::SpiceItem* spiceItem = g_spiceConfig.findSpiceByLevel(targetLevel);
+        if (!spiceItem || !spiceItem->used) {
+            continue;
+        }
+        
+        // 计算当前背包中该类型该等级的卡片数量
+        int currentCardCount = 0;
+        for (const auto& card : cardVector) {
+            if (card.name == cardType && card.level == targetLevel) {
+                if (targetLevel == 0) {
+                    currentCardCount++;
+                } else {
+                    if ((needBound && card.isBound) || (needUnbound && !card.isBound)) {
+                        currentCardCount++;
+                    }
+                }
+            }
+        }
+        
+        const int targetCount = 5;
+        int needProduceCount = targetCount - currentCardCount;
+        
+        if (needProduceCount > 0) {
+            if (!allRequiredSpices.contains(spiceItem->name)) {
+                allRequiredSpices.append(spiceItem->name);
+            }
+            spiceRequirements[spiceItem->name] = spiceRequirements.value(spiceItem->name, 0) + needProduceCount;
+        }
+    }
+    
+    emit logMessage(QString("需要的香料: %1").arg(allRequiredSpices.join(", ")), LogType::Info);
+    for (auto it = spiceRequirements.begin(); it != spiceRequirements.end(); ++it) {
+        emit logMessage(QString("  %1: 预计制作 %2 张卡片").arg(it.key()).arg(it.value()), LogType::Info);
+    }
+    
+    // 1.2 记录已用完的香料（初始为空）
+    QSet<QString> exhaustedSpices;
+    
+    // 1.3 获取所有已启用的香料
+    QStringList availableSpices = g_spiceConfig.getUsedSpiceNames();
+    emit logMessage(QString("已启用的香料: %1").arg(availableSpices.join(", ")), LogType::Info);
+    
+    // 1.4 进入制卡页面，预检所有需要的香料是否存在
+    emit logMessage("=== 阶段1.4：进入制卡页面，预检所有需要的香料 ===", LogType::Info);
+    
     if (!m_parent->goToPage(StarryCard::PageType::CardProduce)) {
         emit logMessage("无法进入制卡页面，制卡流程终止", LogType::Error);
         return FALSE;
     }
-    
     threadSafeSleep(150);
+    
+    // 翻页到顶部
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        if (m_parent->isPageAtTop()) {
+            emit logMessage(QString("翻页到顶部成功"), LogType::Success);
+            break;
+        }
+        m_parent->leftClickDPI(m_parent->hwndGame, 532, 539);
+        threadSafeSleep(100);
+    }
+    
+    // 遍历所有需要的香料，逐个检查是否存在（不点击，但要检查绑定状态）
+    for (const QString& spiceName : allRequiredSpices) {
+        emit logMessage(QString("预检香料: %1").arg(spiceName), LogType::Info);
+        
+        GlobalSpiceConfig::SpiceItem* spiceItem = g_spiceConfig.findSpiceByName(spiceName);
+        if (!spiceItem) {
+            continue;
+        }
+        
+        // 获取该香料的绑定配置
+        bool spice_bound = spiceItem->bound;
+        bool spice_unbound = !spiceItem->bound;
+        emit logMessage(QString("预检香料绑定要求: 绑定=%1, 不绑=%2").arg(spice_bound ? "是" : "否").arg(spice_unbound ? "是" : "否"), LogType::Info);
+        
+        bool found = false;
+        
+        // 从顶部开始翻页查找
+        for (int pageIndex = 0; pageIndex < 30; ++pageIndex) {
+            QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "预检香料");
+            if (screenshot.isNull()) {
+                continue;
+            }
+            
+            // 检查当前页面的10个香料位置
+            for (int i = 0; i < 10; ++i) {
+                int x_offset = 33 + i * 49;
+                QRect spiceRect(x_offset, 526, 49, 49);
+                QImage spiceImage = screenshot.copy(spiceRect);
+                
+                if (spiceImage.isNull()) {
+                    continue;
+                }
+                
+                // 检查香料类型是否匹配
+                if (m_parent->spiceTemplateHashes[spiceName] != m_parent->calculateImageHash(spiceImage, m_parent->spiceTemplateRoi)) {
+                    continue;
+                }
+                
+                // 检查绑定状态是否匹配
+                bool actualBindState = false;
+                if (!m_parent->checkSpiceBindState(spiceImage, spice_bound, spice_unbound, actualBindState)) {
+                    continue;  // 绑定状态不匹配，继续查找
+                }
+                
+                // 找到了匹配的香料（类型和绑定状态都符合）
+                emit logMessage(QString("预检找到香料: %1 (绑定=%2)").arg(spiceName).arg(actualBindState ? "是" : "否"), LogType::Success);
+                found = true;
+                break;
+            }
+            
+            if (found) {
+                break;
+            }
+            
+            // 翻页
+            m_parent->leftClickDPI(m_parent->hwndGame, 535, 563);
+            threadSafeSleep(200);
+            
+            // 检查是否到底部
+            if (m_parent->isPageAtBottom()) {
+                break;
+            }
+        }
+        
+        if (!found) {
+            exhaustedSpices.insert(spiceName);
+            emit logMessage(QString("预检未找到符合绑定要求的香料: %1").arg(spiceName), LogType::Warning);
+        }
+        
+        // 返回顶部准备检查下一个香料
+        for (int attempt = 0; attempt < 20; ++attempt) {
+            if (m_parent->isPageAtTop()) {
+                break;
+            }
+            m_parent->leftClickDPI(m_parent->hwndGame, 532, 539);
+            threadSafeSleep(100);
+        }
+    }
+    
+    // 1.5 根据预检结果进行断链分析
+    if (!exhaustedSpices.isEmpty()) {
+        emit logMessage(QString("预检发现香料缺失: %1，开始断链检查").arg(exhaustedSpices.values().join(", ")), LogType::Warning);
+        
+        // 情况1：只启用了一个香料且缺失
+        if (availableSpices.size() == 1) {
+            emit logMessage(QString("仅启用一种香料且缺失，制卡流程终止"), LogType::Error);
+            emit showWarningMessage("香料缺失", QString("香料 %1 不存在或已用完！制卡流程已停止。").arg(exhaustedSpices.values().join(", ")));
+            m_parent->isEnhancing = false;
+            return FALSE;
+        }
+        
+        // 情况2：所有已启用的香料都缺失
+        bool allExhausted = true;
+        for (const QString& spiceName : availableSpices) {
+            if (!exhaustedSpices.contains(spiceName)) {
+                allExhausted = false;
+                break;
+            }
+        }
+        
+        if (allExhausted) {
+            emit logMessage(QString("所有已启用的香料均缺失，制卡流程终止"), LogType::Error);
+            emit showWarningMessage("香料缺失", QString("所有已启用的香料均不存在或已用完！制卡流程已停止。\n缺失的香料: %1").arg(exhaustedSpices.values().join(", ")));
+            m_parent->isEnhancing = false;
+            return FALSE;
+        }
+        
+        // 情况3：检查强化链完整性（包括所有相关的副卡等级）
+        emit logMessage(QString("检查香料缺失后的强化链完整性..."), LogType::Info);
+        
+        // 收集所有相关的等级（目标等级 + 所有需要的副卡等级）
+        QSet<int> relevantLevels;
+        for (int level = m_parent->minEnhancementLevel; level <= m_parent->maxEnhancementLevel; ++level) {
+            relevantLevels.insert(level);
+            
+            // 添加该等级强化所需的所有副卡等级
+            int fromLevel = level - 1;
+            if (fromLevel >= 0 && g_enhancementConfig.hasLevelConfig(fromLevel, level)) {
+                auto levelConfig = g_enhancementConfig.getLevelConfig(fromLevel, level);
+                if (levelConfig.subcard1 >= 0) relevantLevels.insert(levelConfig.subcard1);
+                if (levelConfig.subcard2 >= 0) relevantLevels.insert(levelConfig.subcard2);
+                if (levelConfig.subcard3 >= 0) relevantLevels.insert(levelConfig.subcard3);
+            }
+        }
+        
+        QStringList levelList;
+        for (int level : relevantLevels) {
+            levelList.append(QString::number(level));
+        }
+        emit logMessage(QString("需要检查的所有相关等级: %1").arg(levelList.join(", ")), LogType::Info);
+        
+        // 初始化：假设所有相关等级都可获得
+        QSet<int> canObtainLevels = relevantLevels;
+        
+        // 迭代检查，直到没有变化
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            
+            for (int toLevel : relevantLevels) {
+                if (!canObtainLevels.contains(toLevel)) {
+                    continue;  // 已经被标记为不可获得
+                }
+                
+                bool canMakeWithSpice = false;
+                bool canEnhance = false;
+                
+                // 检查是否能用香料制作
+                GlobalSpiceConfig::SpiceItem* levelSpice = g_spiceConfig.findSpiceByLevel(toLevel);
+                if (levelSpice && levelSpice->used && !exhaustedSpices.contains(levelSpice->name)) {
+                    canMakeWithSpice = true;
+                }
+                
+                // 检查是否能通过强化获得
+                int fromLevel = toLevel - 1;
+                if (fromLevel >= 0 && g_enhancementConfig.hasLevelConfig(fromLevel, toLevel)) {
+                    if (canObtainLevels.contains(fromLevel)) {
+                        auto levelConfig = g_enhancementConfig.getLevelConfig(fromLevel, toLevel);
+                        QVector<int> requiredSubcards = {levelConfig.subcard1, levelConfig.subcard2, levelConfig.subcard3};
+                        
+                        bool allSubcardsAvailable = true;
+                        for (int subcardLevel : requiredSubcards) {
+                            if (subcardLevel >= 0 && !canObtainLevels.contains(subcardLevel)) {
+                                allSubcardsAvailable = false;
+                                emit logMessage(QString("  %1星无法强化获得：副卡%2星不可获得").arg(toLevel).arg(subcardLevel), LogType::Warning);
+                                break;
+                            }
+                        }
+                        
+                        if (allSubcardsAvailable) {
+                            canEnhance = true;
+                        }
+                    }
+                }
+                
+                // 如果既不能用香料制作，也不能通过强化获得，则标记为不可获得
+                if (!canMakeWithSpice && !canEnhance) {
+                    canObtainLevels.remove(toLevel);
+                    changed = true;
+                    
+                    GlobalSpiceConfig::SpiceItem* item = g_spiceConfig.findSpiceByLevel(toLevel);
+                    QString spiceName = item ? item->name : "未知";
+                    emit logMessage(QString("  %1星(%2)不可获得：香料缺失且无法强化").arg(toLevel).arg(spiceName), LogType::Error);
+                }
+            }
+        }
+        
+        // 检查目标范围内的等级是否都可获得
+        QStringList unobtainableLevelsInRange;
+        for (int level = m_parent->minEnhancementLevel; level <= m_parent->maxEnhancementLevel; ++level) {
+            if (!canObtainLevels.contains(level)) {
+                GlobalSpiceConfig::SpiceItem* item = g_spiceConfig.findSpiceByLevel(level);
+                QString levelDesc = item ? 
+                    QString("%1星(%2)").arg(level).arg(item->name) : 
+                    QString("%1星").arg(level);
+                unobtainableLevelsInRange.append(levelDesc);
+            }
+        }
+        
+        if (!unobtainableLevelsInRange.isEmpty()) {
+            emit logMessage(QString("断链预检失败：目标范围(%1-%2星)内有等级无法获得: %3，制卡流程终止")
+                .arg(m_parent->minEnhancementLevel)
+                .arg(m_parent->maxEnhancementLevel)
+                .arg(unobtainableLevelsInRange.join("、")), LogType::Error);
+            
+            emit showWarningMessage("强化链断裂", 
+                QString("无法继续制卡！\n\n强化目标范围：%1-%2星\n无法获得的等级：%3\n\n原因：\n• 这些等级的香料不存在或已用完\n• 强化所需的副卡等级也无法获得\n\n强化链已断裂，无法完成强化目标。")
+                .arg(m_parent->minEnhancementLevel)
+                .arg(m_parent->maxEnhancementLevel)
+                .arg(unobtainableLevelsInRange.join("、")));
+            
+            m_parent->isEnhancing = false;
+            return FALSE;
+        }
+        
+        emit logMessage("断链预检通过：虽有香料缺失，但不影响强化链完整性", LogType::Success);
+    } else {
+        emit logMessage("断链预检通过：所有需要的香料均存在", LogType::Success);
+    }
+    
+    emit logMessage("=== 阶段1完成：制卡前预检通过 ===", LogType::Success);
+    emit logMessage("注意：香料数量检测将在制作过程中进行（每张卡需5个香料）", LogType::Info);
+    
+    // ========== 阶段3：逐个制作卡片（含动态断链检测） ==========
+    emit logMessage("=== 阶段3：开始制作卡片 ===", LogType::Info);
     
     // 遍历g_cardProduceConfig中的每个制卡需求
     for (const auto& produceItem : g_cardProduceConfig.produceItems) {
@@ -6842,8 +7260,8 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
             .arg(targetLevel == 0 ? " (0星卡片统计忽略绑定状态)" : 
                  needBound ? " (仅统计绑定卡片)" : " (仅统计不绑定卡片)"), LogType::Info);
         
-        // 计算需要制作的数量 (目标8张)
-        const int targetCount = 8;
+        // 计算需要制作的数量 (目标5张)
+        const int targetCount = 5;
         int needProduceCount = targetCount - currentCardCount;
         
         if (needProduceCount <= 0) {
@@ -6907,8 +7325,10 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
 
         // 调用配方识别和点击（使用StarryCard的统一方法）
         if (!m_parent->performRecipeRecognitionAndClick(cardType)) {
-            emit logMessage(QString("配方识别和点击失败: %1，跳过制作").arg(cardType), LogType::Warning);
-            continue; // 跳过这个制作项目
+            emit logMessage(QString("配方识别失败: %1配方已用完，制卡流程终止").arg(cardType), LogType::Error);
+            emit showWarningMessage("配方已用完", QString("未找到配方 %1，可能已用完！制卡流程已停止。").arg(cardType));
+            m_parent->isEnhancing = false;
+            return FALSE;
         }
         
         emit logMessage(QString("配方识别和点击成功: %1").arg(cardType), LogType::Success);
@@ -6923,11 +7343,19 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
                                 .arg(spice_unbound ? "是" : "否"),
                             LogType::Info);
 
+            // 如果该香料已在制作过程中发现用完，跳过识别和制作
+            if (exhaustedSpices.contains(spiceItem->name)) {
+                emit logMessage(QString("香料 %1 已在制作过程中发现用完，跳过该制卡需求").arg(spiceItem->name), LogType::Info);
+                continue;
+            }
+
             QPair<bool, bool> spiceResult = m_parent->recognizeSpice(spiceItem->name, spice_bound, spice_unbound);
             if (!spiceResult.first)
             {
-                emit logMessage(QString("香料识别失败: %1，跳过该制卡需求").arg(spiceItem->name), LogType::Error);
-                continue;
+                // 香料识别失败，说明香料已用完（或数量不足5个）
+                exhaustedSpices.insert(spiceItem->name);
+                emit logMessage(QString("香料识别失败: %1 (可能数量不足5个或已用完)，记录后继续检查其他香料").arg(spiceItem->name), LogType::Warning);
+                continue;  // 跳过当前制卡需求，继续尝试其他香料
             }
 
             emit logMessage(QString("香料识别成功: %1").arg(spiceItem->name), LogType::Success);
@@ -6935,7 +7363,16 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
         }
         else
         {
-            emit logMessage(QString("0星卡片制作，直接进入制作流程"), LogType::Info);
+            // 0星卡片制作：需要取消之前可能选中的香料
+            emit logMessage(QString("0星卡片制作，点击取消香料"), LogType::Info);
+            
+            // 点击香料区域中心位置取消香料选择
+            int spiceClickX = m_parent->SPICE_AREA_HOUSE.x() + m_parent->SPICE_AREA_HOUSE.width() / 2;
+            int spiceClickY = m_parent->SPICE_AREA_HOUSE.y() + m_parent->SPICE_AREA_HOUSE.height() / 2;
+            m_parent->leftClickDPI(m_parent->hwndGame, spiceClickX, spiceClickY);
+            
+            emit logMessage(QString("已点击香料区域取消香料: (%1, %2)").arg(spiceClickX).arg(spiceClickY), LogType::Info);
+            threadSafeSleep(300);
         }
 
         // 循环制作卡片
@@ -6954,7 +7391,9 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
                 QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
                 if (!m_parent->checkSpicePosState(screenshot, m_parent->SPICE_AREA_HOUSE, spiceItem->name))
                 {
-                    emit logMessage(QString("香料耗尽: %1").arg(spiceItem->name), LogType::Error);
+                    emit logMessage(QString("制作过程中检测到香料耗尽: %1").arg(spiceItem->name), LogType::Warning);
+                    // 记录该香料已用完
+                    exhaustedSpices.insert(spiceItem->name);
                     canContinueProduce = false;
                 }
             }
@@ -6978,6 +7417,8 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
             }
             else
             {
+                // 香料耗尽，跳出制作循环，继续处理下一个制卡需求
+                emit logMessage(QString("%1 香料耗尽，已成功制作 %2 张，跳过剩余制作").arg(spiceItem->name).arg(successCount), LogType::Info);
                 break;
             }
         }
@@ -6989,6 +7430,135 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
         if (&produceItem != &g_cardProduceConfig.produceItems.last()) {
             threadSafeSleep(100);
         }
+    }
+    
+    // ========== 阶段4：统一断链检查 ==========
+    if (!exhaustedSpices.isEmpty()) {
+        emit logMessage(QString("=== 阶段4：检测到香料耗尽，开始断链检查 ==="), LogType::Warning);
+        emit logMessage(QString("已耗尽的香料: %1").arg(exhaustedSpices.values().join(", ")), LogType::Warning);
+        
+        // 情况1：只启用了一个香料且用完
+        if (availableSpices.size() == 1) {
+            emit logMessage(QString("仅启用一种香料且已用完，制卡流程终止"), LogType::Error);
+            emit showWarningMessage("香料已用完", QString("香料 %1 已用完！制卡流程已停止。").arg(exhaustedSpices.values().join(", ")));
+            m_parent->isEnhancing = false;
+            return FALSE;
+        }
+        
+        // 情况2：所有已启用的香料都用完
+        bool allExhausted = true;
+        for (const QString& spiceName : availableSpices) {
+            if (!exhaustedSpices.contains(spiceName)) {
+                allExhausted = false;
+                break;
+            }
+        }
+        
+        if (allExhausted) {
+            emit logMessage(QString("所有已启用的香料均已用完，制卡流程终止"), LogType::Error);
+            emit showWarningMessage("香料已用完", QString("所有已启用的香料均已用完！制卡流程已停止。\n已用完的香料: %1").arg(exhaustedSpices.values().join(", ")));
+            m_parent->isEnhancing = false;
+            return FALSE;
+        }
+        
+        // 情况3：检查强化链完整性（包括所有相关的副卡等级）
+        emit logMessage(QString("检查香料用完后的强化链完整性..."), LogType::Info);
+        
+        // 收集所有相关的等级（目标等级 + 所有需要的副卡等级）
+        QSet<int> relevantLevels;
+        for (int level = m_parent->minEnhancementLevel; level <= m_parent->maxEnhancementLevel; ++level) {
+            relevantLevels.insert(level);
+            
+            // 添加该等级强化所需的所有副卡等级
+            int fromLevel = level - 1;
+            if (fromLevel >= 0 && g_enhancementConfig.hasLevelConfig(fromLevel, level)) {
+                auto levelConfig = g_enhancementConfig.getLevelConfig(fromLevel, level);
+                if (levelConfig.subcard1 >= 0) relevantLevels.insert(levelConfig.subcard1);
+                if (levelConfig.subcard2 >= 0) relevantLevels.insert(levelConfig.subcard2);
+                if (levelConfig.subcard3 >= 0) relevantLevels.insert(levelConfig.subcard3);
+            }
+        }
+        
+        // 初始化：假设所有相关等级都可获得
+        QSet<int> canObtainLevels = relevantLevels;
+        
+        // 迭代检查，直到没有变化
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            
+            for (int toLevel : relevantLevels) {
+                if (!canObtainLevels.contains(toLevel)) {
+                    continue;  // 已经被标记为不可获得
+                }
+                
+                bool canMakeWithSpice = false;
+                bool canEnhance = false;
+                
+                // 检查是否能用香料制作
+                GlobalSpiceConfig::SpiceItem* levelSpice = g_spiceConfig.findSpiceByLevel(toLevel);
+                if (levelSpice && levelSpice->used && !exhaustedSpices.contains(levelSpice->name)) {
+                    canMakeWithSpice = true;
+                }
+                
+                // 检查是否能通过强化获得
+                int fromLevel = toLevel - 1;
+                if (fromLevel >= 0 && g_enhancementConfig.hasLevelConfig(fromLevel, toLevel)) {
+                    if (canObtainLevels.contains(fromLevel)) {
+                        auto levelConfig = g_enhancementConfig.getLevelConfig(fromLevel, toLevel);
+                        QVector<int> requiredSubcards = {levelConfig.subcard1, levelConfig.subcard2, levelConfig.subcard3};
+                        
+                        bool allSubcardsAvailable = true;
+                        for (int subcardLevel : requiredSubcards) {
+                            if (subcardLevel >= 0 && !canObtainLevels.contains(subcardLevel)) {
+                                allSubcardsAvailable = false;
+                                break;
+                            }
+                        }
+                        
+                        if (allSubcardsAvailable) {
+                            canEnhance = true;
+                        }
+                    }
+                }
+                
+                // 如果既不能用香料制作，也不能通过强化获得，则标记为不可获得
+                if (!canMakeWithSpice && !canEnhance) {
+                    canObtainLevels.remove(toLevel);
+                    changed = true;
+                }
+            }
+        }
+        
+        // 检查目标范围内的等级是否都可获得
+        QStringList unobtainableLevelsInRange;
+        for (int level = m_parent->minEnhancementLevel; level <= m_parent->maxEnhancementLevel; ++level) {
+            if (!canObtainLevels.contains(level)) {
+                GlobalSpiceConfig::SpiceItem* item = g_spiceConfig.findSpiceByLevel(level);
+                QString levelDesc = item ? 
+                    QString("%1星(%2)").arg(level).arg(item->name) : 
+                    QString("%1星").arg(level);
+                unobtainableLevelsInRange.append(levelDesc);
+            }
+        }
+        
+        if (!unobtainableLevelsInRange.isEmpty()) {
+            emit logMessage(QString("强化链断裂：目标范围(%1-%2星)内有等级无法获得: %3，制卡流程终止")
+                .arg(m_parent->minEnhancementLevel)
+                .arg(m_parent->maxEnhancementLevel)
+                .arg(unobtainableLevelsInRange.join("、")), LogType::Error);
+            
+            emit showWarningMessage("强化链断裂", 
+                QString("无法继续制卡！\n\n强化目标范围：%1-%2星\n无法获得的等级：%3\n\n原因：\n• 这些等级的香料已用完或数量不足\n• 强化所需的副卡等级也无法获得\n\n强化链已断裂，无法完成强化目标。")
+                .arg(m_parent->minEnhancementLevel)
+                .arg(m_parent->maxEnhancementLevel)
+                .arg(unobtainableLevelsInRange.join("、")));
+            
+            m_parent->isEnhancing = false;
+            return FALSE;
+        }
+        
+        emit logMessage("断链检查通过：虽有香料耗尽，但不影响强化链完整性，继续强化流程", LogType::Success);
     }
     
     emit logMessage("卡片制作流程执行完成", LogType::Success);

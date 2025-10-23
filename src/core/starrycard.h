@@ -521,8 +521,9 @@ private:
     // 香料识别相关方法
     bool loadSpiceTemplates();
     QPair<bool, bool> recognizeSpice(const QString& spiceType, bool spice_bound, bool spice_unbound);
-    bool recognizeSingleSpice(const QImage& spiceImage, const QString& spiceType, int positionX, int positionY, 
-                              bool spice_bound, bool spice_unbound);
+    // recognizeSingleSpice返回值：0=未找到(继续翻页), 1=成功选中, 2=数量不足(香料用完)
+    int recognizeSingleSpice(const QImage& spiceImage, const QString& spiceType, int positionX, int positionY, 
+                             bool spice_bound, bool spice_unbound);
     bool checkSpiceBindState(const QImage& spiceImage, bool spice_bound, bool spice_unbound, bool& actualBindState);
     bool isSpiceBound(const QImage& spiceImage);
     QPair<bool, bool> getSpiceBindingConfig(const QString& spiceType) const;
