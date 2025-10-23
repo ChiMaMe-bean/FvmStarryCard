@@ -85,6 +85,7 @@ private:
     BOOL performEnhancementOnce(const QVector<CardInfo>& cardVector);
     BOOL performCardProduce(const QVector<CardInfo>& cardVector);
     BOOL performCardProduceOnce();
+    bool checkBackpackFull(); // 检测背包是否满了
     void getCardNeedProduce(); // 分析强化配置提取制卡需求
     void threadSafeSleep(int ms);
 };

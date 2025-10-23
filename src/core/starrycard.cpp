@@ -4309,12 +4309,14 @@ int StarryCard::recognizeSingleSpice(const QImage& spiceImage, const QString& sp
     QImage screenshotAfter = captureWindowByHandle(hwndGame, "点击香料后");
     
     // 情况1：检查被点击位置的香料图标是否消失（0<数量<5）
-    QRect clickedSpiceRect(positionX - spiceTemplateRoi.width() / 2, 
-                           positionY - spiceTemplateRoi.height() / 2, 
+    // 香料图标在香料区域(49*49)内的位置是(6,6,32,16)
+    // 香料图标的绝对位置 = 香料区域中心 - 香料区域半宽 + 图标偏移
+    QRect clickedSpiceRect(positionX - 49/2 + spiceTemplateRoi.x(), 
+                           positionY - 49/2 + spiceTemplateRoi.y(), 
                            spiceTemplateRoi.width(), 
                            spiceTemplateRoi.height());
     QImage clickedSpiceAfter = screenshotAfter.copy(clickedSpiceRect);
-    bool spiceDisappeared = (spiceTemplateHashes[spiceType] != calculateImageHash(clickedSpiceAfter, spiceTemplateRoi));
+    bool spiceDisappeared = (spiceTemplateHashes[spiceType] != calculateImageHash(clickedSpiceAfter, QRect(0, 0, spiceTemplateRoi.width(), spiceTemplateRoi.height())));
     
     // 情况2：使用动态检测的结果
     // spiceAreaChanged 已经在动态检测中计算好了
@@ -6563,6 +6565,12 @@ void EnhancementWorker::performEnhancement()
 
     // 创建本地副本避免跨线程访问QStringList
     QStringList cardTypesCopy = m_parent->requiredCardTypes;
+    
+    // 连续未找到可强化卡片的计数器
+    int noEnhanceableCardsCount = 0;
+    
+    // 是否进行了强化操作的标志
+    bool hasPerformedEnhancement = false;
 
     // 重置卡片背包滚动条位置
     m_parent->resetScrollBar();
@@ -6663,9 +6671,28 @@ void EnhancementWorker::performEnhancement()
         // 调用强化处理方法
         if (!performEnhancementOnce(cardVector) && m_parent->isEnhancing)
         {
-            // 返回值为FALSE，且未停止强化，说明未找到可以强化的卡片，启动制卡流程
-            emit logMessage("未找到可以强化的卡片，启动制卡流程", LogType::Info);
-            // 此处待实现制卡流程
+            // 返回值为FALSE，且未停止强化，说明未找到可以强化的卡片
+            // 只有在没有进行强化操作的情况下才计入连续未找到次数
+            if (!hasPerformedEnhancement) {
+                noEnhanceableCardsCount++;
+                emit logMessage(QString("未找到可以强化的卡片，连续次数: %1/3").arg(noEnhanceableCardsCount), LogType::Warning);
+                
+                // 检查是否连续三次未找到可强化卡片
+                if (noEnhanceableCardsCount >= 3) {
+                    emit logMessage("连续三次未找到可强化卡片，强化流程结束", LogType::Error);
+                    emit showWarningMessage("强化完成", "连续三次未找到可强化的卡片，强化流程已结束！");
+                    m_parent->isEnhancing = false;
+                    emit enhancementFinished();
+                    return;
+                }
+            } else {
+                // 进行了强化操作，重置计数器
+                noEnhanceableCardsCount = 0;
+                emit logMessage("强化完成后重新分析，重置连续未找到计数器", LogType::Info);
+            }
+            
+            // 启动制卡流程
+            emit logMessage("启动制卡流程", LogType::Info);
             if(!performCardProduce(cardVector))
             {
                 m_parent->isEnhancing = false;
@@ -6676,6 +6703,13 @@ void EnhancementWorker::performEnhancement()
             m_parent->goToPage(StarryCard::PageType::CardEnhance);
             threadSafeSleep(100);
             // m_parent->isEnhancing = false;
+        }
+        else
+        {
+            // 找到可强化卡片，进行强化操作
+            hasPerformedEnhancement = true;
+            noEnhanceableCardsCount = 0;
+            emit logMessage("找到可强化卡片，进行强化操作", LogType::Success);
         }
     }
 
@@ -7398,13 +7432,25 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
                 }
             }
             
+            
             if (canContinueProduce)
             {
-                if (performCardProduceOnce()) {
+                int produceResult = performCardProduceOnce();
+                if (produceResult == TRUE) {
                     successCount++;
                     // 添加制卡统计记录
                     QString spiceNameForStats = useSpice ? spiceItem->name : "无香料";
                     m_parent->addProductionRecord(spiceNameForStats, cardType);
+                    
+                    // 制卡成功后检测背包是否满了
+                    if (checkBackpackFull()) {
+                        emit logMessage(QString("制卡后检测到背包已满，停止制卡，已成功制作%1张").arg(successCount), LogType::Warning);
+                        return TRUE;  // 返回成功，进入强化流程
+                    }
+                } else if (produceResult == 3) {
+                    // 背包满了，跳出制卡循环
+                    emit logMessage(QString("背包已满，停止制卡，已成功制作%1张").arg(successCount), LogType::Warning);
+                    return TRUE;  // 返回成功，进入强化流程
                 } else {
                     // 制作失败时可以选择继续或终止，这里选择继续
                     emit logMessage(QString("制卡失败: %1").arg(cardType), LogType::Error);
@@ -7565,6 +7611,54 @@ BOOL EnhancementWorker::performCardProduce(const QVector<CardInfo> &cardVector)
     return TRUE;
 }
 
+// 检测背包是否满了（立即检测，不等待）
+bool EnhancementWorker::checkBackpackFull()
+{
+    qDebug() << "开始检测背包满状态...";
+    
+    // 立即检测背包满状态
+    QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "检测背包");
+    if (screenshot.isNull()) {
+        qDebug() << "截图失败，无法检测背包状态";
+        return false;
+    }
+    
+    // 提取(270,356)位置的20*20区域
+    QRect recipeSlotRect(270, 356, 20, 20);
+    QImage recipeSlotImage = screenshot.copy(recipeSlotRect);
+    
+    if (recipeSlotImage.isNull()) {
+        qDebug() << "提取背包检测区域失败";
+        return false;
+    }
+    
+    // 加载配方槽模板
+    QString recipeSlotPath = ":/images/position/(270,356)配方槽.png";
+    QImage recipeSlotTemplate(recipeSlotPath);
+    
+    if (recipeSlotTemplate.isNull()) {
+        qDebug() << "无法加载配方槽模板，路径:" << recipeSlotPath;
+        return false;
+    }
+    
+    // 计算哈希值并对比
+    QString templateHash = m_parent->calculateImageHash(recipeSlotTemplate, QRect(0, 0, 20, 20));
+    QString currentHash = m_parent->calculateImageHash(recipeSlotImage, QRect(0, 0, 20, 20));
+    
+    qDebug() << "模板哈希:" << templateHash;
+    qDebug() << "当前哈希:" << currentHash;
+    
+    bool isFull = (templateHash == currentHash);
+    
+    if (isFull) {
+        qDebug() << "检测到背包已满（配方槽图案出现在(270,356)）";
+    } else {
+        qDebug() << "背包未满，继续制卡流程";
+    }
+    
+    return isFull;
+}
+
 BOOL EnhancementWorker::performCardProduceOnce()
 {
     QImage screenshot;
@@ -7575,17 +7669,29 @@ BOOL EnhancementWorker::performCardProduceOnce()
         if(m_parent->checkSynHousePosState(screenshot, m_parent->PRODUCE_READY_POS, "produceReady"))
         {
             m_parent->leftClickDPI(m_parent->hwndGame, 287, 427); // 点击制卡按钮
-            while(waitTime < 100)
-            {
-                screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "主页面");
-                if(m_parent->checkSynHousePosState(screenshot, m_parent->PRODUCE_READY_POS, "producing"))
-                {
+            
+            // 等待100ms后开始检测制卡状态，最多等待0.5秒
+            QThread::msleep(100);  // 识别前加100ms延迟
+            QElapsedTimer timer;
+            timer.start();
+            while (timer.elapsed() < 500) {
+                QImage screenshot = m_parent->captureWindowByHandle(m_parent->hwndGame, "检测制卡状态");
+                if (m_parent->checkSynHousePosState(screenshot, m_parent->PRODUCE_READY_POS, "producing")) {
+                    // 识别到producing状态，背包未满
+                    emit logMessage("检测到制卡进行中，背包未满", LogType::Success);
                     return TRUE;
                 }
-                threadSafeSleep(30); // 等待制卡开始才返回
-                waitTime++;
+                QThread::msleep(50);
             }
-            return FALSE;
+            
+            // 0.5秒内没识别到producing，检测背包是否满
+            if (checkBackpackFull()) {
+                emit logMessage("检测到背包已满，停止制卡", LogType::Warning);
+                return 3;  // 返回特殊值表示背包满
+            }
+            
+            // 背包未满，制卡成功
+            return TRUE;
         }
         threadSafeSleep(100);
         waitTime++;
