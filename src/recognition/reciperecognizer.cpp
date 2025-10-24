@@ -120,7 +120,7 @@ QImage RecipeRecognizer::captureWindowByHandle(void* hwnd, const QString& window
 }
 
 // 计算图像哈希值
-QString RecipeRecognizer::calculateImageHash(const QImage& image, const QRect& roi)
+QString RecipeRecognizer::calculateImageHash(const QImage& image, const QRect& roi) const
 {
     QImage targetImage = image;
     
@@ -155,7 +155,7 @@ QString RecipeRecognizer::calculateImageHash(const QImage& image, const QRect& r
 }
 
 // 计算哈希相似度 (基于汉明距离)
-double RecipeRecognizer::calculateHashSimilarity(const QString& hash1, const QString& hash2)
+double RecipeRecognizer::calculateHashSimilarity(const QString& hash1, const QString& hash2) const
 {
     if (hash1.length() != hash2.length() || hash1.isEmpty()) {
         return 0.0;
@@ -360,6 +360,19 @@ QStringList RecipeRecognizer::getAvailableRecipeTypes() const
     QStringList types = recipeTemplateHashes.keys();
     std::sort(types.begin(), types.end());
     return types;
+}
+
+QString RecipeRecognizer::getRecipeHash(const QString& recipeName) const
+{
+    // 如果配方存在，返回其ROI区域的哈希值
+    if (recipeTemplateImages.contains(recipeName)) {
+        QImage templateImage = recipeTemplateImages.value(recipeName);
+        QImage templateROI = templateImage.copy(RECIPE_ROI);
+        if (!templateROI.isNull()) {
+            return calculateImageHash(templateROI);
+        }
+    }
+    return QString();
 }
 
 // 识别配方

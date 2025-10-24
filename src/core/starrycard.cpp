@@ -4193,12 +4193,59 @@ bool StarryCard::checkCardSelectionBeforeEnhancement(const CardInfo& expectedMai
     return allCorrect;
 }
 
-// 检查制卡前的卡片选择状态
-bool StarryCard::checkCardSelectionBeforeProduction()
+// 检查合成屋中的配方是否正确
+bool StarryCard::checkRecipeSelectionBeforeProduction(const QString& expectedRecipe)
 {
-    // 制卡前的检查逻辑，稍后完善
-    addLog("制卡前卡片状态检查（待完善）", LogType::Info);
-    return true;
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，无法检查配方状态", LogType::Error);
+        return false;
+    }
+    
+    if (!recipeRecognizer) {
+        addLog("配方识别器未初始化", LogType::Error);
+        return false;
+    }
+    
+    // 截取游戏窗口
+    QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+    if (screenshot.isNull()) {
+        addLog("截图失败，无法检查配方状态", LogType::Error);
+        return false;
+    }
+    
+    // 截取合成屋配方位置的ROI区域
+    QImage recipeSlotImage = screenshot.copy(RECIPE_SLOT_POS);
+    if (recipeSlotImage.isNull()) {
+        addLog("配方槽图像截取失败", LogType::Error);
+        return false;
+    }
+    
+    // 计算当前配方槽的哈希值
+    QString currentRecipeHash = calculateImageHash(recipeSlotImage);
+    
+    // 获取期望配方的模板哈希值
+    QString expectedRecipeHash = recipeRecognizer->getRecipeHash(expectedRecipe);
+    if (expectedRecipeHash.isEmpty()) {
+        addLog(QString("无法获取配方 %1 的模板哈希值").arg(expectedRecipe), LogType::Error);
+        return false;
+    }
+    
+    // 比较哈希值
+    bool isMatch = (currentRecipeHash == expectedRecipeHash);
+    
+    qDebug() << "=== 配方哈希比较 ===";
+    qDebug() << "期望配方:" << expectedRecipe;
+    qDebug() << "期望配方哈希:" << expectedRecipeHash;
+    qDebug() << "实际配方哈希:" << currentRecipeHash;
+    qDebug() << "比较结果:" << (isMatch ? "匹配" : "不匹配");
+    
+    if (isMatch) {
+        qDebug() << "配方检查通过";
+    } else {
+        qDebug() << "配方检查失败";
+    }
+    
+    return isMatch;
 }
 
 // 取消所有卡片选择
@@ -4909,6 +4956,56 @@ QPair<bool, bool> StarryCard::dynamicRecognizeSpice(const QString& spiceType, bo
 
 // calculateRecipeHistogram 函数已迁移到 RecipeRecognizer 类
 
+// 点击配方并动态检查是否正确（带重试机制）
+bool StarryCard::clickRecipeAndVerify(const QPoint& clickPos, const QString& targetRecipe, int maxRetries)
+{
+    for (int retry = 0; retry < maxRetries; retry++) {
+        if (retry > 0) {
+            addLog(QString("配方选择错误，重新识别（第%1次重试）").arg(retry), LogType::Warning);
+        }
+        
+        // 点击配方
+        leftClickDPI(hwndGame, clickPos.x(), clickPos.y());
+        addLog(QString("点击配方位置: (%1, %2)").arg(clickPos.x()).arg(clickPos.y()), LogType::Info);
+        
+        // 动态检查配方是否正确
+        bool recipeCheckPassed = false;
+        int maxAttempts = 20;      // 最多尝试20次
+        int checkInterval = 50;    // 每50ms检查一次
+        int totalWaitTime = 0;
+        
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            sleepByQElapsedTimer(checkInterval);
+            totalWaitTime += checkInterval;
+            
+            // 调用检查函数
+            if (checkRecipeSelectionBeforeProduction(targetRecipe)) {
+                recipeCheckPassed = true;
+                addLog(QString("配方加载完成（第%1次检查，耗时%2ms）")
+                       .arg(attempt).arg(totalWaitTime), LogType::Success);
+                return true;  // 成功
+            }
+            
+            // 如果还在循环中，说明检查未通过，继续等待
+            if (attempt < maxAttempts) {
+                qDebug() << QString("第%1次配方检查未通过，继续等待...").arg(attempt);
+            }
+        }
+        
+        // 检查失败，取消配方选择
+        if (!recipeCheckPassed && retry < maxRetries - 1) {
+            addLog(QString("配方选择检查失败（已尝试%1次，总耗时%2ms），取消配方选择")
+                   .arg(maxAttempts).arg(totalWaitTime), LogType::Warning);
+            leftClickDPI(hwndGame, 288, 360);  // 点击取消配方
+            sleepByQElapsedTimer(200);         // 等待取消完成
+        }
+    }
+    
+    // 所有重试都失败
+    addLog(QString("配方选择失败：已重试%1次仍无法正确选择配方").arg(maxRetries), LogType::Error);
+    return false;
+}
+
 // 执行配方识别和点击的完整流程
 bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
 {
@@ -4928,13 +5025,12 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
     addLog("开始动态配方识别（当前页面）...", LogType::Info);
     RecipeClickInfo currentResult = recipeRecognizer->dynamicRecognizeRecipe(hwndGame, "主页面", targetRecipe);
     if (currentResult.found) {
-        // 在当前页面找到配方，直接点击
-        leftClickDPI(hwndGame, currentResult.clickPosition.x(), currentResult.clickPosition.y());
-        addLog(QString("在当前页面找到配方并点击: (%1, %2), 相似度: %3")
+        // 在当前页面找到配方，点击并验证
+        addLog(QString("在当前页面找到配方: (%1, %2), 相似度: %3")
                .arg(currentResult.clickPosition.x())
                .arg(currentResult.clickPosition.y())
                .arg(QString::number(currentResult.similarity, 'f', 4)), LogType::Success);
-        return true;
+        return clickRecipeAndVerify(currentResult.clickPosition, targetRecipe);
     }
     
     // 步骤2: 当前页面没找到，重置配方滚动条到顶部
@@ -4960,13 +5056,12 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
     addLog("开始动态配方识别（顶部页面）...", LogType::Info);
     RecipeClickInfo topResult = recipeRecognizer->dynamicRecognizeRecipe(hwndGame, "主页面", targetRecipe);
     if (topResult.found) {
-        // 在顶部页面找到配方，直接点击
-        leftClickDPI(hwndGame, topResult.clickPosition.x(), topResult.clickPosition.y());
-        addLog(QString("在顶部页面找到配方并点击: (%1, %2), 相似度: %3")
+        // 在顶部页面找到配方，点击并验证
+        addLog(QString("在顶部页面找到配方: (%1, %2), 相似度: %3")
                .arg(topResult.clickPosition.x())
                .arg(topResult.clickPosition.y())
                .arg(QString::number(topResult.similarity, 'f', 4)), LogType::Success);
-        return true;
+        return clickRecipeAndVerify(topResult.clickPosition, targetRecipe);
     }
     
     // 步骤4: 使用配方专属滚动逐页查找
@@ -5002,14 +5097,13 @@ bool StarryCard::performRecipeRecognitionAndClick(const QString& targetRecipe)
         addLog(QString("开始动态配方识别（第 %1 页）...").arg(pageCount), LogType::Info);
         RecipeClickInfo pageResult = recipeRecognizer->dynamicRecognizeRecipe(hwndGame, "主页面", targetRecipe);
         if (pageResult.found) {
-            // 找到配方，点击
-            leftClickDPI(hwndGame, pageResult.clickPosition.x(), pageResult.clickPosition.y());
-            addLog(QString("在第 %1 页找到配方并点击: (%2, %3), 相似度: %4")
+            // 找到配方，点击并验证
+            addLog(QString("在第 %1 页找到配方: (%2, %3), 相似度: %4")
                    .arg(pageCount)
                    .arg(pageResult.clickPosition.x())
                    .arg(pageResult.clickPosition.y())
                    .arg(QString::number(pageResult.similarity, 'f', 4)), LogType::Success);
-            return true;
+            return clickRecipeAndVerify(pageResult.clickPosition, targetRecipe);
         }
         
         // 检查是否已滚动到底部 - 检测两种底部模板中的任何一种

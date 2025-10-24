@@ -661,8 +661,11 @@ private:
     
     // 卡片状态检查方法
     bool checkCardSelectionBeforeEnhancement(const CardInfo& expectedMainCard, const QVector<CardInfo>& expectedSubcards);
-    bool checkCardSelectionBeforeProduction();
     void cancelAllCardSelections();
+    
+    // 配方状态检查方法
+    bool checkRecipeSelectionBeforeProduction(const QString& expectedRecipe);
+    bool clickRecipeAndVerify(const QPoint& clickPos, const QString& targetRecipe, int maxRetries = 3);
     
     const QRect MAIN_CARD_POS = QRect(269, 332, 32, 32); // 主卡位置
     const QRect SUB_CARD_POS = QRect(269, 261, 32, 32);  // 副卡位置
@@ -671,6 +674,7 @@ private:
     const QRect ENHANCE_BUTTON_POS = QRect(261, 425, 20, 20); // 强化按钮位置
     const QRect ENHANCE_SCROLL_BAR_BOTTOM = QRect(902, 526, 16, 16); // 强化滚动条底部位置
     const QRect RECIPE_SCROLL_BAR_BOTTOM = QRect(902, 265, 16, 16);  // 配方滚动条底部位置
+    const QRect RECIPE_SLOT_POS = QRect(268, 344, 38, 24); // 合成屋配方显示位置（ROI区域）
 
     // 页面跳转枚举
     enum class PageType {

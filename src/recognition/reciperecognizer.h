@@ -68,8 +68,8 @@ public:
     bool loadRecipeTemplates();
     
     // 图像哈希计算方法 (替代颜色直方图)
-    QString calculateImageHash(const QImage& image, const QRect& roi = QRect());
-    double calculateHashSimilarity(const QString& hash1, const QString& hash2);
+    QString calculateImageHash(const QImage& image, const QRect& roi = QRect()) const;
+    double calculateHashSimilarity(const QString& hash1, const QString& hash2) const;
     
     // 配方识别辅助方法
     QList<QPair<QPoint, double>> performGridHashMatching(const QImage& recipeArea, const QString& targetRecipe, 
@@ -93,6 +93,9 @@ public:
     RecipeClickInfo dynamicRecognizeRecipe(void* hwnd, const QString& windowName, const QString& targetRecipe);
     
     QStringList getAvailableRecipeTypes() const;
+    
+    // 获取配方模板哈希值
+    QString getRecipeHash(const QString& recipeName) const;
 
     // 设置DPI值
     void setDPI(int dpi) { DPI = dpi; }
