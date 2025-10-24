@@ -3716,6 +3716,7 @@ void StarryCard::loadSynHousePosTemplates()
     QStringList positionFiles = {
         ":/images/position/mainCardEmpty.png",
         ":/images/position/subCardEmpty.png",
+        ":/images/position/subCardPosition.png",  // 副卡空槽图（32x16）
         ":/images/position/insuranceEmpty.png",
         ":/images/position/enhanceButtonReady.png",
         ":/images/position/enhanceScrollTop.png",
@@ -3832,6 +3833,401 @@ BOOL StarryCard::checkSpicePosState(QImage screenshot, const QRect& pos, const Q
 {
     QImage spiceImage = screenshot.copy(pos);
     return calculateImageHash(spiceImage, spiceTemplateRoi) == spiceTemplateHashes[templateName];
+}
+
+// 检查强化前的卡片选择状态
+bool StarryCard::checkCardSelectionBeforeEnhancement(const CardInfo& expectedMainCard, const QVector<CardInfo>& expectedSubcards)
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，无法检查卡片状态", LogType::Error);
+        return false;
+    }
+    
+    // 截取游戏窗口
+    QImage screenshot = captureWindowByHandle(hwndGame, "主页面");
+    if (screenshot.isNull()) {
+        addLog("截图失败，无法检查卡片状态", LogType::Error);
+        return false;
+    }
+    
+    addLog("开始检查强化前的卡片选择状态", LogType::Info);
+    
+    // 检查主卡
+    QImage mainCardType = screenshot.copy(271, 342, 32, 16);
+    QImage mainCardLevel = screenshot.copy(272, 328, 6, 8);
+    QImage mainCardBind = screenshot.copy(268, 365, 6, 7);
+    
+    // 检查副卡1
+    QImage subCard1Type = screenshot.copy(271, 271, 32, 16);
+    QImage subCard1Level = screenshot.copy(272, 257, 6, 8);
+    QImage subCard1Bind = screenshot.copy(268, 294, 6, 7);
+    
+    // 检查副卡2
+    QImage subCard2Type = screenshot.copy(215, 342, 32, 16);
+    QImage subCard2Level = screenshot.copy(216, 328, 6, 8);
+    QImage subCard2Bind = screenshot.copy(212, 365, 6, 7);
+    
+    // 检查副卡3
+    QImage subCard3Type = screenshot.copy(327, 342, 32, 16);
+    QImage subCard3Level = screenshot.copy(328, 328, 6, 8);
+    QImage subCard3Bind = screenshot.copy(324, 365, 6, 7);
+    
+    // 计算哈希值
+    QString mainCardTypeHash = calculateImageHash(mainCardType);
+    QString mainCardLevelHash = calculateImageHash(mainCardLevel);
+    QString mainCardBindHash = calculateImageHash(mainCardBind);
+    
+    QString subCard1TypeHash = calculateImageHash(subCard1Type);
+    QString subCard1LevelHash = calculateImageHash(subCard1Level);
+    QString subCard1BindHash = calculateImageHash(subCard1Bind);
+    
+    QString subCard2TypeHash = calculateImageHash(subCard2Type);
+    QString subCard2LevelHash = calculateImageHash(subCard2Level);
+    QString subCard2BindHash = calculateImageHash(subCard2Bind);
+    
+    QString subCard3TypeHash = calculateImageHash(subCard3Type);
+    QString subCard3LevelHash = calculateImageHash(subCard3Level);
+    QString subCard3BindHash = calculateImageHash(subCard3Bind);
+    
+    // 检查主卡是否正确选择
+    bool mainCardCorrect = false;
+    if (!mainCardType.isNull() && !mainCardLevel.isNull() && !mainCardBind.isNull()) {
+        // 输出哈希比较信息到qDebug
+        qDebug() << "=== 主卡哈希比较 ===";
+        qDebug() << "期望主卡:" << expectedMainCard.name << "(" << expectedMainCard.level << "星," 
+                 << (expectedMainCard.isBound ? "绑定" : "未绑定") << ")";
+        
+        // 获取期望卡片的模板哈希
+        QString expectedTypeHash = cardRecognizer->getCardTypeHash(expectedMainCard.name);
+        QString expectedLevelHash = cardRecognizer->getCardLevelHash(expectedMainCard.level);
+        QString expectedBindHash = expectedMainCard.isBound ? cardRecognizer->getCardBindHash() : QString();
+        
+        qDebug() << "期望主卡类型哈希:" << expectedTypeHash;
+        qDebug() << "实际主卡类型哈希:" << mainCardTypeHash;
+        qDebug() << "期望主卡等级哈希:" << expectedLevelHash;
+        qDebug() << "实际主卡等级哈希:" << mainCardLevelHash;
+        
+        // 比较类型哈希
+        bool typeMatch = (mainCardTypeHash == expectedTypeHash);
+        // 比较等级哈希
+        bool levelMatch = (mainCardLevelHash == expectedLevelHash);
+        // 比较绑定哈希
+        bool bindMatch = false;
+        if (expectedMainCard.isBound) {
+            qDebug() << "期望主卡绑定哈希:" << expectedBindHash;
+            qDebug() << "实际主卡绑定哈希:" << mainCardBindHash;
+            bindMatch = (mainCardBindHash == expectedBindHash);
+        } else {
+            // 如果期望未绑定，则检查是否不等于绑定哈希
+            bindMatch = (mainCardBindHash != cardRecognizer->getCardBindHash());
+            qDebug() << "期望主卡未绑定，实际主卡绑定哈希:" << mainCardBindHash;
+        }
+        
+        mainCardCorrect = typeMatch && levelMatch && bindMatch;
+        
+        if (mainCardCorrect) {
+            addLog("主卡检查通过", LogType::Success);
+            qDebug() << "主卡检查通过";
+        } else {
+            addLog(QString("主卡检查失败: 类型%1, 等级%2, 绑定%3")
+                   .arg(typeMatch ? "匹配" : "不匹配")
+                   .arg(levelMatch ? "匹配" : "不匹配")
+                   .arg(bindMatch ? "匹配" : "不匹配"), LogType::Error);
+            qDebug() << "主卡检查失败";
+        }
+    } else {
+        mainCardCorrect = false;
+        addLog("主卡图像截取失败", LogType::Warning);
+        qDebug() << "主卡图像截取失败";
+    }
+    
+    // 检查副卡1是否正确选择
+    bool subCard1Correct = false;
+    if (expectedSubcards.size() >= 1) {
+        const CardInfo& expectedSubCard1 = expectedSubcards[0];
+        if (!subCard1Type.isNull() && !subCard1Level.isNull() && !subCard1Bind.isNull()) {
+            // 输出哈希比较信息到qDebug
+            qDebug() << "=== 副卡1哈希比较 ===";
+            qDebug() << "期望副卡1:" << expectedSubCard1.name << "(" << expectedSubCard1.level << "星," 
+                     << (expectedSubCard1.isBound ? "绑定" : "未绑定") << ")";
+            
+            // 获取期望卡片的模板哈希
+            QString expectedTypeHash = cardRecognizer->getCardTypeHash(expectedSubCard1.name);
+            QString expectedLevelHash = cardRecognizer->getCardLevelHash(expectedSubCard1.level);
+            
+            qDebug() << "期望副卡1类型哈希:" << expectedTypeHash;
+            qDebug() << "实际副卡1类型哈希:" << subCard1TypeHash;
+            qDebug() << "期望副卡1等级哈希:" << expectedLevelHash;
+            qDebug() << "实际副卡1等级哈希:" << subCard1LevelHash;
+            
+            // 比较类型哈希
+            bool typeMatch = (subCard1TypeHash == expectedTypeHash);
+            // 比较等级哈希
+            bool levelMatch = (subCard1LevelHash == expectedLevelHash);
+            // 比较绑定哈希
+            bool bindMatch = false;
+            if (expectedSubCard1.isBound) {
+                QString expectedBindHash = cardRecognizer->getCardBindHash();
+                qDebug() << "期望副卡1绑定哈希:" << expectedBindHash;
+                qDebug() << "实际副卡1绑定哈希:" << subCard1BindHash;
+                bindMatch = (subCard1BindHash == expectedBindHash);
+            } else {
+                // 如果期望未绑定，则检查是否不等于绑定哈希
+                bindMatch = (subCard1BindHash != cardRecognizer->getCardBindHash());
+                qDebug() << "期望副卡1未绑定，实际副卡1绑定哈希:" << subCard1BindHash;
+            }
+            
+            subCard1Correct = typeMatch && levelMatch && bindMatch;
+            
+            if (subCard1Correct) {
+                addLog("副卡1检查通过", LogType::Success);
+                qDebug() << "副卡1检查通过";
+            } else {
+                addLog(QString("副卡1检查失败: 类型%1, 等级%2, 绑定%3")
+                       .arg(typeMatch ? "匹配" : "不匹配")
+                       .arg(levelMatch ? "匹配" : "不匹配")
+                       .arg(bindMatch ? "匹配" : "不匹配"), LogType::Error);
+                qDebug() << "副卡1检查失败";
+            }
+        } else {
+            subCard1Correct = false;
+            addLog("副卡1图像截取失败", LogType::Warning);
+            qDebug() << "副卡1图像截取失败";
+        }
+    } else {
+        // 如果没有预期副卡1，检查该位置是否为空槽图
+        qDebug() << "=== 副卡1空槽检查 ===";
+        qDebug() << "副卡1位置不需要卡片，检查是否为空槽";
+        
+        QString emptySlotHash = synHousePosTemplateHashes.value("subCardPosition");
+        if (emptySlotHash.isEmpty()) {
+            qWarning() << "空槽模板(subCardPosition)未加载！";
+            subCard1Correct = false;
+            addLog("副卡1空槽模板未加载", LogType::Error);
+        } else {
+            qDebug() << "期望副卡1空槽哈希:" << emptySlotHash;
+            qDebug() << "实际副卡1类型哈希:" << subCard1TypeHash;
+            
+            bool isEmptySlot = (subCard1TypeHash == emptySlotHash);
+            subCard1Correct = isEmptySlot;
+            
+            if (isEmptySlot) {
+                addLog("副卡1位置为空槽，检查通过", LogType::Success);
+                qDebug() << "副卡1位置为空槽，检查通过";
+            } else {
+                addLog("副卡1位置不应该有卡片，但检测到有卡片！", LogType::Error);
+                qDebug() << "副卡1位置不应该有卡片，但检测到有卡片！";
+            }
+        }
+    }
+    
+    // 检查副卡2是否正确选择
+    bool subCard2Correct = false;
+    if (expectedSubcards.size() >= 2) {
+        const CardInfo& expectedSubCard2 = expectedSubcards[1];
+        if (!subCard2Type.isNull() && !subCard2Level.isNull() && !subCard2Bind.isNull()) {
+            // 输出哈希比较信息到qDebug
+            qDebug() << "=== 副卡2哈希比较 ===";
+            qDebug() << "期望副卡2:" << expectedSubCard2.name << "(" << expectedSubCard2.level << "星," 
+                     << (expectedSubCard2.isBound ? "绑定" : "未绑定") << ")";
+            
+            // 获取期望卡片的模板哈希
+            QString expectedTypeHash = cardRecognizer->getCardTypeHash(expectedSubCard2.name);
+            QString expectedLevelHash = cardRecognizer->getCardLevelHash(expectedSubCard2.level);
+            
+            qDebug() << "期望副卡2类型哈希:" << expectedTypeHash;
+            qDebug() << "实际副卡2类型哈希:" << subCard2TypeHash;
+            qDebug() << "期望副卡2等级哈希:" << expectedLevelHash;
+            qDebug() << "实际副卡2等级哈希:" << subCard2LevelHash;
+            
+            // 比较类型哈希
+            bool typeMatch = (subCard2TypeHash == expectedTypeHash);
+            // 比较等级哈希
+            bool levelMatch = (subCard2LevelHash == expectedLevelHash);
+            // 比较绑定哈希
+            bool bindMatch = false;
+            if (expectedSubCard2.isBound) {
+                QString expectedBindHash = cardRecognizer->getCardBindHash();
+                qDebug() << "期望副卡2绑定哈希:" << expectedBindHash;
+                qDebug() << "实际副卡2绑定哈希:" << subCard2BindHash;
+                bindMatch = (subCard2BindHash == expectedBindHash);
+            } else {
+                // 如果期望未绑定，则检查是否不等于绑定哈希
+                bindMatch = (subCard2BindHash != cardRecognizer->getCardBindHash());
+                qDebug() << "期望副卡2未绑定，实际副卡2绑定哈希:" << subCard2BindHash;
+            }
+            
+            subCard2Correct = typeMatch && levelMatch && bindMatch;
+            
+            if (subCard2Correct) {
+                addLog("副卡2检查通过", LogType::Success);
+                qDebug() << "副卡2检查通过";
+            } else {
+                addLog(QString("副卡2检查失败: 类型%1, 等级%2, 绑定%3")
+                       .arg(typeMatch ? "匹配" : "不匹配")
+                       .arg(levelMatch ? "匹配" : "不匹配")
+                       .arg(bindMatch ? "匹配" : "不匹配"), LogType::Error);
+                qDebug() << "副卡2检查失败";
+            }
+        } else {
+            subCard2Correct = false;
+            addLog("副卡2图像截取失败", LogType::Warning);
+            qDebug() << "副卡2图像截取失败";
+        }
+    } else {
+        // 如果没有预期副卡2，检查该位置是否为空槽图
+        qDebug() << "=== 副卡2空槽检查 ===";
+        qDebug() << "副卡2位置不需要卡片，检查是否为空槽";
+        
+        QString emptySlotHash = synHousePosTemplateHashes.value("subCardPosition");
+        if (emptySlotHash.isEmpty()) {
+            qWarning() << "空槽模板(subCardPosition)未加载！";
+            subCard2Correct = false;
+            addLog("副卡2空槽模板未加载", LogType::Error);
+        } else {
+            qDebug() << "期望副卡2空槽哈希:" << emptySlotHash;
+            qDebug() << "实际副卡2类型哈希:" << subCard2TypeHash;
+            
+            bool isEmptySlot = (subCard2TypeHash == emptySlotHash);
+            subCard2Correct = isEmptySlot;
+            
+            if (isEmptySlot) {
+                addLog("副卡2位置为空槽，检查通过", LogType::Success);
+                qDebug() << "副卡2位置为空槽，检查通过";
+            } else {
+                addLog("副卡2位置不应该有卡片，但检测到有卡片！", LogType::Error);
+                qDebug() << "副卡2位置不应该有卡片，但检测到有卡片！";
+            }
+        }
+    }
+    
+    // 检查副卡3是否正确选择
+    bool subCard3Correct = false;
+    if (expectedSubcards.size() >= 3) {
+        const CardInfo& expectedSubCard3 = expectedSubcards[2];
+        if (!subCard3Type.isNull() && !subCard3Level.isNull() && !subCard3Bind.isNull()) {
+            // 输出哈希比较信息到qDebug
+            qDebug() << "=== 副卡3哈希比较 ===";
+            qDebug() << "期望副卡3:" << expectedSubCard3.name << "(" << expectedSubCard3.level << "星," 
+                     << (expectedSubCard3.isBound ? "绑定" : "未绑定") << ")";
+            
+            // 获取期望卡片的模板哈希
+            QString expectedTypeHash = cardRecognizer->getCardTypeHash(expectedSubCard3.name);
+            QString expectedLevelHash = cardRecognizer->getCardLevelHash(expectedSubCard3.level);
+            
+            qDebug() << "期望副卡3类型哈希:" << expectedTypeHash;
+            qDebug() << "实际副卡3类型哈希:" << subCard3TypeHash;
+            qDebug() << "期望副卡3等级哈希:" << expectedLevelHash;
+            qDebug() << "实际副卡3等级哈希:" << subCard3LevelHash;
+            
+            // 比较类型哈希
+            bool typeMatch = (subCard3TypeHash == expectedTypeHash);
+            // 比较等级哈希
+            bool levelMatch = (subCard3LevelHash == expectedLevelHash);
+            // 比较绑定哈希
+            bool bindMatch = false;
+            if (expectedSubCard3.isBound) {
+                QString expectedBindHash = cardRecognizer->getCardBindHash();
+                qDebug() << "期望副卡3绑定哈希:" << expectedBindHash;
+                qDebug() << "实际副卡3绑定哈希:" << subCard3BindHash;
+                bindMatch = (subCard3BindHash == expectedBindHash);
+            } else {
+                // 如果期望未绑定，则检查是否不等于绑定哈希
+                bindMatch = (subCard3BindHash != cardRecognizer->getCardBindHash());
+                qDebug() << "期望副卡3未绑定，实际副卡3绑定哈希:" << subCard3BindHash;
+            }
+            
+            subCard3Correct = typeMatch && levelMatch && bindMatch;
+            
+            if (subCard3Correct) {
+                addLog("副卡3检查通过", LogType::Success);
+                qDebug() << "副卡3检查通过";
+            } else {
+                addLog(QString("副卡3检查失败: 类型%1, 等级%2, 绑定%3")
+                       .arg(typeMatch ? "匹配" : "不匹配")
+                       .arg(levelMatch ? "匹配" : "不匹配")
+                       .arg(bindMatch ? "匹配" : "不匹配"), LogType::Error);
+                qDebug() << "副卡3检查失败";
+            }
+        } else {
+            subCard3Correct = false;
+            addLog("副卡3图像截取失败", LogType::Warning);
+            qDebug() << "副卡3图像截取失败";
+        }
+    } else {
+        // 如果没有预期副卡3，检查该位置是否为空槽图
+        qDebug() << "=== 副卡3空槽检查 ===";
+        qDebug() << "副卡3位置不需要卡片，检查是否为空槽";
+        
+        QString emptySlotHash = synHousePosTemplateHashes.value("subCardPosition");
+        if (emptySlotHash.isEmpty()) {
+            qWarning() << "空槽模板(subCardPosition)未加载！";
+            subCard3Correct = false;
+            addLog("副卡3空槽模板未加载", LogType::Error);
+        } else {
+            qDebug() << "期望副卡3空槽哈希:" << emptySlotHash;
+            qDebug() << "实际副卡3类型哈希:" << subCard3TypeHash;
+            
+            bool isEmptySlot = (subCard3TypeHash == emptySlotHash);
+            subCard3Correct = isEmptySlot;
+            
+            if (isEmptySlot) {
+                addLog("副卡3位置为空槽，检查通过", LogType::Success);
+                qDebug() << "副卡3位置为空槽，检查通过";
+            } else {
+                addLog("副卡3位置不应该有卡片，但检测到有卡片！", LogType::Error);
+                qDebug() << "副卡3位置不应该有卡片，但检测到有卡片！";
+            }
+        }
+    }
+    
+    // 综合检查结果
+    bool allCorrect = mainCardCorrect && subCard1Correct && subCard2Correct && subCard3Correct;
+    
+    if (allCorrect) {
+        addLog("卡片状态检查通过", LogType::Success);
+    } else {
+        addLog("卡片状态检查失败", LogType::Error);
+    }
+    
+    return allCorrect;
+}
+
+// 检查制卡前的卡片选择状态
+bool StarryCard::checkCardSelectionBeforeProduction()
+{
+    // 制卡前的检查逻辑，稍后完善
+    addLog("制卡前卡片状态检查（待完善）", LogType::Info);
+    return true;
+}
+
+// 取消所有卡片选择
+void StarryCard::cancelAllCardSelections()
+{
+    if (!hwndGame || !IsWindow(hwndGame)) {
+        addLog("游戏窗口无效，无法取消卡片选择", LogType::Error);
+        return;
+    }
+    
+    addLog("取消所有卡片选择", LogType::Info);
+    
+    // 取消主卡选择
+    leftClickDPI(hwndGame, 288, 350);
+    sleepByQElapsedTimer(100);
+    
+    // 取消副卡1选择
+    leftClickDPI(hwndGame, 288, 280);
+    sleepByQElapsedTimer(100);
+    
+    // 取消副卡2选择
+    leftClickDPI(hwndGame, 232, 350);
+    sleepByQElapsedTimer(100);
+    
+    // 取消副卡3选择
+    leftClickDPI(hwndGame, 345, 350);
+    sleepByQElapsedTimer(100);
+    
+    addLog("所有卡片选择已取消", LogType::Success);
 }
 
 bool StarryCard::isPageAtTop()
@@ -6621,7 +7017,7 @@ void EnhancementWorker::performEnhancement()
                 
                 // 翻页条件：未找到卡片，或者第一行没有符合条件的卡片
                 i++;
-                if(i == 12)
+                if(i == 20)
                 {
                     m_parent->isEnhancing = false;
                     emit logMessage("已达最大翻页次数，未找到目标卡片，强化已停止！", LogType::Error);
@@ -6832,6 +7228,44 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
                 m_parent->leftClickDPI(m_parent->hwndGame, subcard.centerPosition.x(), subcard.centerPosition.y());
                 // emit logMessage(QString("点击副卡：(%1, %2)").arg(subcard.centerPosition.x()).arg(subcard.centerPosition.y()), LogType::Info);
             }
+            
+            // 点击卡片后，动态检查卡片是否加载完成
+            emit logMessage("等待并检查卡片加载状态...", LogType::Info);
+            
+            bool cardCheckPassed = false;
+            int maxAttempts = 20;      // 最多尝试20次
+            int checkInterval = 50;    // 每50ms检查一次
+            int totalWaitTime = 0;
+            
+            for (int attempt = 1; attempt <= maxAttempts && m_parent->isEnhancing; attempt++) {
+                threadSafeSleep(checkInterval);
+                totalWaitTime += checkInterval;
+                
+                // 调用检查函数
+                if (m_parent->checkCardSelectionBeforeEnhancement(mainCard, selectedSubcards)) {
+                    cardCheckPassed = true;
+                    emit logMessage(QString("卡片加载完成（第%1次检查，耗时%2ms）")
+                                   .arg(attempt).arg(totalWaitTime), LogType::Success);
+                    break;
+                }
+                
+                // 如果还在循环中，说明检查未通过，继续等待
+                if (attempt < maxAttempts) {
+                    qDebug() << QString("第%1次检查未通过，继续等待...").arg(attempt);
+                }
+            }
+            
+            // 检查最终结果
+            if (!cardCheckPassed) {
+                emit logMessage(QString("卡片选择检查失败（已尝试%1次，总耗时%2ms）")
+                               .arg(maxAttempts).arg(totalWaitTime), LogType::Error);
+                m_parent->cancelAllCardSelections();
+                emit logMessage("卡片选择已取消", LogType::Error);
+                m_parent->isEnhancing = false;
+                emit showWarningMessage("卡片选择错误", "检测到卡片选择错误，已取消所有选择。");
+                return FALSE;
+            }
+            emit logMessage("卡片选择状态检查通过，继续强化流程", LogType::Success);
             
             // 4. 检查是否需要四叶草
             if (levelConfig.clover != "无" && levelConfig.clover != "") {

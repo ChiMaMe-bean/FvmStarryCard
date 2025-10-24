@@ -266,6 +266,26 @@ QStringList CardRecognizer::getRegisteredCards() const
     return cardTypeHashes.keys();
 }
 
+QString CardRecognizer::getCardTypeHash(const QString& cardName) const
+{
+    return cardTypeHashes.value(cardName, QString());
+}
+
+QString CardRecognizer::getCardLevelHash(int level) const
+{
+    // level范围: 1-16
+    if (level < 1 || level > 16 || level > cardLevelHashes.size()) {
+        qWarning() << "Invalid level:" << level;
+        return QString();
+    }
+    return cardLevelHashes[level - 1];  // 转换为0-based索引
+}
+
+QString CardRecognizer::getCardBindHash() const
+{
+    return cardBindHash;
+}
+
 QPoint CardRecognizer::calculateCardCenterPosition(int row, int col) const
 {
     // 计算卡片在背包区域内的中心位置

@@ -658,6 +658,12 @@ private:
     void loadSynHousePosTemplates();
     QHash<QString, QString> synHousePosTemplateHashes; // 合成屋内卡片位置模板名称 -> 哈希值
     BOOL checkSynHousePosState(QImage screenshot, const QRect& pos, const QString& templateName);
+    
+    // 卡片状态检查方法
+    bool checkCardSelectionBeforeEnhancement(const CardInfo& expectedMainCard, const QVector<CardInfo>& expectedSubcards);
+    bool checkCardSelectionBeforeProduction();
+    void cancelAllCardSelections();
+    
     const QRect MAIN_CARD_POS = QRect(269, 332, 32, 32); // 主卡位置
     const QRect SUB_CARD_POS = QRect(269, 261, 32, 32);  // 副卡位置
     const QRect INSURANCE_POS = QRect(382, 423, 20, 20); // 保险位置

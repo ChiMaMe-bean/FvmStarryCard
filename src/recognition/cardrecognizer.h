@@ -34,6 +34,11 @@ public:
     QVector<CardInfo> recognizeCards(const QImage& screenshot, const QStringList& targetCardTypes);
     QStringList getRegisteredCards() const;
     
+    // 获取模板哈希值的公开方法
+    QString getCardTypeHash(const QString& cardName) const;
+    QString getCardLevelHash(int level) const;  // level: 1-16
+    QString getCardBindHash() const;
+    
     // Card ROI constants
     static constexpr int CARD_TYPE_ROI_X = 8;
     static constexpr int CARD_TYPE_ROI_Y = 22;

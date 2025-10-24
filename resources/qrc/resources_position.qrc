@@ -22,5 +22,6 @@
         <file>images/position/recipeScrollBottom.png</file>
         <file>images/position/recipeScrollBottomLight.png</file>
         <file>images/position/subCardEmpty.png</file>
+        <file>images/position/subCardPosition.png</file>
     </qresource>
 </RCC>
