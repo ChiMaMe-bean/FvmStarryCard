@@ -6672,23 +6672,16 @@ void EnhancementWorker::performEnhancement()
         if (!performEnhancementOnce(cardVector) && m_parent->isEnhancing)
         {
             // 返回值为FALSE，且未停止强化，说明未找到可以强化的卡片
-            // 只有在没有进行强化操作的情况下才计入连续未找到次数
-            if (!hasPerformedEnhancement) {
-                noEnhanceableCardsCount++;
-                emit logMessage(QString("未找到可以强化的卡片，连续次数: %1/3").arg(noEnhanceableCardsCount), LogType::Warning);
-                
-                // 检查是否连续三次未找到可强化卡片
-                if (noEnhanceableCardsCount >= 3) {
-                    emit logMessage("连续三次未找到可强化卡片，强化流程结束", LogType::Error);
-                    emit showWarningMessage("强化完成", "连续三次未找到可强化的卡片，强化流程已结束！");
-                    m_parent->isEnhancing = false;
-                    emit enhancementFinished();
-                    return;
-                }
-            } else {
-                // 进行了强化操作，重置计数器
-                noEnhanceableCardsCount = 0;
-                emit logMessage("强化完成后重新分析，重置连续未找到计数器", LogType::Info);
+            noEnhanceableCardsCount++;
+            emit logMessage(QString("未找到可以强化的卡片，连续次数: %1/3").arg(noEnhanceableCardsCount), LogType::Warning);
+            
+            // 检查是否连续三次未找到可强化卡片
+            if (noEnhanceableCardsCount >= 3) {
+                emit logMessage("连续三次未找到可强化卡片，强化流程结束", LogType::Error);
+                emit showWarningMessage("强化完成", "连续三次未找到可强化的卡片，强化流程已结束！");
+                m_parent->isEnhancing = false;
+                emit enhancementFinished();
+                return;
             }
             
             // 启动制卡流程
@@ -6709,7 +6702,7 @@ void EnhancementWorker::performEnhancement()
             // 找到可强化卡片，进行强化操作
             hasPerformedEnhancement = true;
             noEnhanceableCardsCount = 0;
-            emit logMessage("找到可强化卡片，进行强化操作", LogType::Success);
+            emit logMessage("找到可强化卡片，进行强化操作，重置连续未找到计数器", LogType::Success);
         }
     }
 
