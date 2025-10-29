@@ -1394,6 +1394,7 @@ QImage StarryCard::captureImageRegion(const QImage& sourceImage, const QRect& re
     }
     
     // 确保screenshots文件夹存在
+#ifdef DEBUG_BUILD
     QString appDir = QCoreApplication::applicationDirPath();
     QString screenshotsDir = appDir + "/screenshots";
     QDir dir(screenshotsDir);
@@ -1430,6 +1431,7 @@ QImage StarryCard::captureImageRegion(const QImage& sourceImage, const QRect& re
         qDebug() << QString("区域图像保存失败：%1").arg(saveFilename);
         // 即使保存失败，仍然返回截取到的图像
     }
+#endif
     
     return regionImage;
 }
@@ -1462,6 +1464,7 @@ void StarryCard::onCaptureAndRecognize()
     // 获取当前应用程序的目录
     QString appDir = QCoreApplication::applicationDirPath();
     QString screenshotsDir = appDir + "/screenshots";
+#ifdef DEBUG_BUILD
     QDir dir(screenshotsDir);
 
     // 尝试创建screenshots文件夹
@@ -1473,7 +1476,6 @@ void StarryCard::onCaptureAndRecognize()
             return;
         }
     }
-
     // 生成固定的文件名
     QString filename = QString("%1/screenshot_main.png").arg(screenshotsDir);
 
@@ -1485,6 +1487,7 @@ void StarryCard::onCaptureAndRecognize()
         QMessageBox::warning(this, "错误", "无法保存截图");
         return;
     }
+#endif
 
     // 声明debugMode变量
     QString debugMode;
@@ -1531,6 +1534,7 @@ void StarryCard::onCaptureAndRecognize()
         QRect cardAreaRoi = QRect(559, 91, 343, 456);
         QString appDir = QCoreApplication::applicationDirPath();
         QString screenshotsDir = appDir + "/screenshots";
+#ifdef DEBUG_BUILD
         int position = getPositionOfScrollBar(screenshot);
         qDebug() << QString("初始滚动条位置: %1").arg(position);
         for(int i = 0; i < 10; i++)
@@ -1558,6 +1562,7 @@ void StarryCard::onCaptureAndRecognize()
             }
             qDebug() << QString("滚动条位置: %1").arg(position);
         }
+#endif
         
     }
     
@@ -3286,8 +3291,10 @@ bool StarryCard::loadCloverTemplates()
         // qDebug() << "成功加载四叶草模板:" << cloverTypes[i] << "颜色直方图特征数:" << histogram.size();
         
         // 保存模板图像和ROI区域用于调试
+#ifdef DEBUG_BUILD
         QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
         QDir().mkpath(debugDir);
+#endif
     }
     
     cloverTemplatesLoaded = !cloverTemplateHistograms.isEmpty();
@@ -3317,8 +3324,10 @@ bool StarryCard::loadBindStateTemplate()
     qDebug() << "绑定状态模板加载成功，哈希值:" << bindStateTemplateHash;
     
     // 保存绑定状态模板用于调试
+#ifdef DEBUG_BUILD
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
     QDir().mkpath(debugDir);
+#endif
     
     return true;
 }
@@ -3757,6 +3766,7 @@ QString StarryCard::recognizeCurrentPosition(QImage screenshot)
             }
             else
             {
+#ifdef DEBUG_BUILD
                 QString appDir = QCoreApplication::applicationDirPath();
                 QString screenshotsDir = appDir + "/screenshots";
                 QDir dir(screenshotsDir);
@@ -3774,6 +3784,7 @@ QString StarryCard::recognizeCurrentPosition(QImage screenshot)
                 {
                     qDebug() << "截图保存失败:" << QString("%1/%2.png").arg(debugDir).arg(key);
                 }
+#endif
                 qDebug() << "未找到匹配的位置模板:" << key;
             }
         } else {
@@ -3838,6 +3849,81 @@ bool StarryCard::checkCardSelectionBeforeEnhancement(const CardInfo& expectedMai
     QImage subCard3Type = screenshot.copy(327, 342, 32, 16);
     QImage subCard3Level = screenshot.copy(328, 328, 6, 8);
     QImage subCard3Bind = screenshot.copy(324, 365, 6, 7);
+    
+    // 输出ROI区域图像用于调试（仅DEBUG和RELWITHDEBINFO模式）
+#if defined(DEBUG_BUILD) || defined(QT_DEBUG)
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString debugDir = appDir + "/debug_card_selection";
+    QDir().mkpath(debugDir);
+    
+    // 保存主卡ROI区域（覆盖文件）
+    if (!mainCardType.isNull()) {
+        QString mainCardTypePath = debugDir + "/main_card_type.png";
+        mainCardType.save(mainCardTypePath);
+        qDebug() << "主卡类型ROI已保存:" << mainCardTypePath;
+    }
+    if (!mainCardLevel.isNull()) {
+        QString mainCardLevelPath = debugDir + "/main_card_level.png";
+        mainCardLevel.save(mainCardLevelPath);
+        qDebug() << "主卡等级ROI已保存:" << mainCardLevelPath;
+    }
+    if (!mainCardBind.isNull()) {
+        QString mainCardBindPath = debugDir + "/main_card_bind.png";
+        mainCardBind.save(mainCardBindPath);
+        qDebug() << "主卡绑定ROI已保存:" << mainCardBindPath;
+    }
+    
+    // 保存副卡1 ROI区域（覆盖文件）
+    if (!subCard1Type.isNull()) {
+        QString subCard1TypePath = debugDir + "/sub_card1_type.png";
+        subCard1Type.save(subCard1TypePath);
+        qDebug() << "副卡1类型ROI已保存:" << subCard1TypePath;
+    }
+    if (!subCard1Level.isNull()) {
+        QString subCard1LevelPath = debugDir + "/sub_card1_level.png";
+        subCard1Level.save(subCard1LevelPath);
+        qDebug() << "副卡1等级ROI已保存:" << subCard1LevelPath;
+    }
+    if (!subCard1Bind.isNull()) {
+        QString subCard1BindPath = debugDir + "/sub_card1_bind.png";
+        subCard1Bind.save(subCard1BindPath);
+        qDebug() << "副卡1绑定ROI已保存:" << subCard1BindPath;
+    }
+    
+    // 保存副卡2 ROI区域（覆盖文件）
+    if (!subCard2Type.isNull()) {
+        QString subCard2TypePath = debugDir + "/sub_card2_type.png";
+        subCard2Type.save(subCard2TypePath);
+        qDebug() << "副卡2类型ROI已保存:" << subCard2TypePath;
+    }
+    if (!subCard2Level.isNull()) {
+        QString subCard2LevelPath = debugDir + "/sub_card2_level.png";
+        subCard2Level.save(subCard2LevelPath);
+        qDebug() << "副卡2等级ROI已保存:" << subCard2LevelPath;
+    }
+    if (!subCard2Bind.isNull()) {
+        QString subCard2BindPath = debugDir + "/sub_card2_bind.png";
+        subCard2Bind.save(subCard2BindPath);
+        qDebug() << "副卡2绑定ROI已保存:" << subCard2BindPath;
+    }
+    
+    // 保存副卡3 ROI区域（覆盖文件）
+    if (!subCard3Type.isNull()) {
+        QString subCard3TypePath = debugDir + "/sub_card3_type.png";
+        subCard3Type.save(subCard3TypePath);
+        qDebug() << "副卡3类型ROI已保存:" << subCard3TypePath;
+    }
+    if (!subCard3Level.isNull()) {
+        QString subCard3LevelPath = debugDir + "/sub_card3_level.png";
+        subCard3Level.save(subCard3LevelPath);
+        qDebug() << "副卡3等级ROI已保存:" << subCard3LevelPath;
+    }
+    if (!subCard3Bind.isNull()) {
+        QString subCard3BindPath = debugDir + "/sub_card3_bind.png";
+        subCard3Bind.save(subCard3BindPath);
+        qDebug() << "副卡3绑定ROI已保存:" << subCard3BindPath;
+    }
+#endif
     
     // 计算哈希值
     QString mainCardTypeHash = calculateImageHash(mainCardType);
@@ -4154,6 +4240,23 @@ bool StarryCard::checkRecipeSelectionBeforeProduction(const QString& expectedRec
         return false;
     }
     
+    // 输出配方ROI区域图像用于调试（仅DEBUG和RELWITHDEBINFO模式）
+#if defined(DEBUG_BUILD) || defined(QT_DEBUG)
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString debugDir = appDir + "/debug_recipe_selection";
+    QDir().mkpath(debugDir);
+    
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+    
+    // 保存配方ROI区域
+    QString recipeSlotPath = debugDir + QString("/recipe_slot_%1.png").arg(timestamp);
+    if (recipeSlotImage.save(recipeSlotPath)) {
+        qDebug() << "配方槽ROI已保存:" << recipeSlotPath;
+    } else {
+        qDebug() << "配方槽ROI保存失败:" << recipeSlotPath;
+    }
+#endif
+    
     // 计算当前配方槽的哈希值
     QString currentRecipeHash = calculateImageHash(recipeSlotImage);
     
@@ -4234,10 +4337,12 @@ bool StarryCard::isPageAtTop()
     }
     
     // 保存检测图像用于调试
+#ifdef DEBUG_BUILD
     static int topCheckCount = 0;
     topCheckCount++;
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
     QDir().mkpath(debugDir);
+#endif
     
     // QString checkImagePath = QString("%1/page_top_check_%2.png").arg(debugDir).arg(topCheckCount);
     // if (pageCheckImage.save(checkImagePath)) {
@@ -4281,10 +4386,12 @@ bool StarryCard::isPageAtBottom()
     }
     
     // 保存检测图像用于调试
+#ifdef DEBUG_BUILD
     static int bottomCheckCount = 0;
     bottomCheckCount++;
     QString debugDir = QCoreApplication::applicationDirPath() + "/debug_clover";
     QDir().mkpath(debugDir);
+#endif
     
     // QString checkImagePath = QString("%1/page_bottom_check_%2.png").arg(debugDir).arg(bottomCheckCount);
     // if (pageCheckImage.save(checkImagePath)) {
@@ -4904,8 +5011,8 @@ bool StarryCard::clickRecipeAndVerify(const QPoint& clickPos, const QString& tar
         
         // 动态检查配方是否正确
         bool recipeCheckPassed = false;
-        int maxAttempts = 20;      // 最多尝试20次
-        int checkInterval = 50;    // 每50ms检查一次
+        int maxAttempts = 200;      // 最多尝试200次（2秒）
+        int checkInterval = 10;     // 每10ms检查一次
         int totalWaitTime = 0;
         
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -5591,6 +5698,7 @@ BOOL StarryCard::refreshGameWindow()
     // 确保screenshots文件夹存在
     QString appDir = QCoreApplication::applicationDirPath();
     QString screenshotsDir = appDir + "/screenshots";
+#ifdef DEBUG_BUILD
     QDir dir(screenshotsDir);
     if (!dir.exists()) {
         if (!dir.mkpath(screenshotsDir)) {
@@ -5599,17 +5707,20 @@ BOOL StarryCard::refreshGameWindow()
             qDebug() << "创建screenshots文件夹成功";
         }
     }
+#endif
     
     // 截取大厅窗口
     if (hwndHall && IsWindow(hwndHall)) {
         QImage hallImage = captureWindowByHandle(hwndHall, "大厅");
         if (!hallImage.isNull()) {
+#ifdef DEBUG_BUILD
             QString hallFilename = QString("%1/Ahall_window.png").arg(screenshotsDir);
             if (hallImage.save(hallFilename)) {
                 qDebug() << "大厅窗口截图保存成功";
             } else {
                 qDebug() << "大厅窗口截图保存失败";
             }
+#endif
         }
     }
     
@@ -5617,12 +5728,14 @@ BOOL StarryCard::refreshGameWindow()
     if (hwndServer && IsWindow(hwndServer)) {
         QImage serverImage = captureWindowByHandle(hwndServer, "选服");
         if (!serverImage.isNull()) {
+#ifdef DEBUG_BUILD
             QString serverFilename = QString("%1/Aserver_window.png").arg(screenshotsDir);
             if (serverImage.save(serverFilename)) {
                 qDebug() << "选服窗口截图保存成功";
             } else {
                 qDebug() << "选服窗口截图保存失败";
             }
+#endif
         }
     } else {
         qDebug() << "选服窗口无效，跳过截图";
@@ -7230,8 +7343,8 @@ BOOL EnhancementWorker::performEnhancementOnce(const QVector<CardInfo>& cardVect
             qDebug() << "等待并检查卡片加载状态...";
             
             bool cardCheckPassed = false;
-            int maxAttempts = 20;      // 最多尝试20次
-            int checkInterval = 50;    // 每50ms检查一次
+            int maxAttempts = 200;      // 最多尝试200次（2秒）
+            int checkInterval = 10;     // 每10ms检查一次
             int totalWaitTime = 0;
             
             for (int attempt = 1; attempt <= maxAttempts && m_parent->isEnhancing; attempt++) {

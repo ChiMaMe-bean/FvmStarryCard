@@ -19,9 +19,11 @@ QString getAppDataPath() {
     
     // 创建截图目录
     QDir dataDir(appDir.absoluteFilePath("data"));
+#ifdef DEBUG_BUILD
     if (!dataDir.exists("screenshots")) {
         dataDir.mkdir("screenshots");
     }
+#endif
     
     return dataDir.absolutePath();
 }
@@ -322,6 +324,7 @@ QVector<CardInfo> CardRecognizer::recognizeCards(const QImage& screenshot, const
         QImage cardsAreaImage = cardAreaImage.copy(0, startY, cardAreaImage.width(), processHeight);
 
         // 保存卡片区域图像
+#ifdef DEBUG_BUILD
         QString appDir = QCoreApplication::applicationDirPath();
         QString screenshotsDir = appDir + "/screenshots";
         QDir().mkpath(screenshotsDir);
@@ -330,6 +333,7 @@ QVector<CardInfo> CardRecognizer::recognizeCards(const QImage& screenshot, const
         } else {
             qDebug() << "卡片区域图像保存失败";
         }
+#endif
         
         // 计算实际可处理的行数
         int maxRows = processHeight / CARD_HEIGHT;

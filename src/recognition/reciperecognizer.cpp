@@ -232,6 +232,7 @@ void RecipeRecognizer::saveMatchDebugImages(const QList<QPair<QPoint, double>>& 
                                            const QVector<int>& xLines, const QVector<int>& yLines, 
                                            const QString& debugDir, const QString& timestamp, int duration)
 {
+#ifdef DEBUG_BUILD
     if (matches.isEmpty()) return;
     
     auto findGridRect = [&](const QPoint& pos) -> QRect {
@@ -289,6 +290,7 @@ void RecipeRecognizer::saveMatchDebugImages(const QList<QPair<QPoint, double>>& 
             }
         }
     }
+#endif
 }
 
 // 加载配方模板
@@ -505,16 +507,20 @@ RecipeClickInfo RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot
         // 保存配方区域图像用于调试
         QString appDir = QCoreApplication::applicationDirPath();
         QString debugDir = appDir + "/debug_recipe";
+#ifdef DEBUG_BUILD
         QDir dir(debugDir);
         if (!dir.exists()) {
             dir.mkpath(debugDir);
         }
+#endif
         
+#ifdef DEBUG_BUILD
         QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
         QString recipeImagePath = debugDir + "/recipe_area_" + timestamp + ".png";
         if (recipeArea.save(recipeImagePath)) {
             qDebug() << QString("配方区域图像已保存: %1").arg(recipeImagePath);
         }
+#endif
         
         qDebug() << QString("选择匹配模板: %1").arg(targetRecipe);
         
@@ -531,7 +537,9 @@ RecipeClickInfo RecipeRecognizer::recognizeRecipeInGrid(const QImage& screenshot
         qDebug() << QString("配方识别耗时: %1 毫秒").arg(duration.count());
         
         // 保存最佳匹配的网格图像
+#ifdef DEBUG_BUILD
         saveMatchDebugImages(matches, recipeArea, xLines, yLines, debugDir, timestamp, duration.count());
+#endif
         
         // 检查是否有相似度为1的配方，如果有则返回其中心位置坐标
         if (!matches.isEmpty() && matches[0].second >= 1.0) {
@@ -573,10 +581,12 @@ RecipeClickInfo RecipeRecognizer::recognizeRecipeInCurrentPage(const QImage& scr
     const int recogH = 149; // 只识别上149像素
     QString appDir = QCoreApplication::applicationDirPath();
     QString debugDir = appDir + "/debug_recipe";
+#ifdef DEBUG_BUILD
     QDir dir(debugDir); 
     if (!dir.exists()) {
         dir.mkpath(debugDir);
     }
+#endif
 
     // 识别当前页面的配方
     QImage recipeArea = screenshot.copy(recipeX, recipeY, recipeW, recipeH);
@@ -591,8 +601,10 @@ RecipeClickInfo RecipeRecognizer::recognizeRecipeInCurrentPage(const QImage& scr
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
     
     // 保存调试图像
+#ifdef DEBUG_BUILD
     QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
     saveMatchDebugImages(matches, recipeArea, xLines, yLines, debugDir, timestamp, duration.count());
+#endif
     
     // 检查当前页面是否有相似度为1的配方在149区域内
     if (!matches.isEmpty() && matches[0].second >= 1.0) {
@@ -697,6 +709,7 @@ void RecipeRecognizer::debugGridLines(const QImage& source) {
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
     qDebug() << "网格线检测耗时:" << duration.count() << "毫秒";
+#ifdef DEBUG_BUILD
     QString appDir = QCoreApplication::applicationDirPath();
     QString debugDir = appDir + "/data/debug_grid";
     QDir dir(debugDir);
@@ -707,9 +720,8 @@ void RecipeRecognizer::debugGridLines(const QImage& source) {
     QString debugFileName = debugDir + "/debug_grid_" + timestamp + ".png";
     if (debugImage.save(debugFileName)) {
         qDebug() << "调试图像已保存:" << debugFileName;
-    } else {
-        qDebug() << "保存调试图像失败";
     }
+#endif
 }
 
 void RecipeRecognizer::getRecipeGridLines(const QImage& recipeArea, QVector<int>& xLines, QVector<int>& yLines) {
@@ -803,10 +815,12 @@ RecipeClickInfo RecipeRecognizer::dynamicRecognizeRecipe(void* hwnd, const QStri
     // 创建调试目录
     QString appDir = QCoreApplication::applicationDirPath();
     QString debugDir = appDir + "/debug_dynamic_recipe";
+#ifdef DEBUG_BUILD
     QDir dir(debugDir);
     if (!dir.exists()) {
         dir.mkpath(debugDir);
     }
+#endif
     
     QString sessionTimestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
     qDebug() << QString("动态识别会话开始: %1").arg(sessionTimestamp);
@@ -847,13 +861,15 @@ RecipeClickInfo RecipeRecognizer::dynamicRecognizeRecipe(void* hwnd, const QStri
         // 检查是否找到匹配度>=1的配方
         if (result.found && result.similarity >= MIN_SIMILARITY) {
             // 保存成功识别的调试截图
+#ifdef DEBUG_BUILD
             QString debugImagePath = debugDir + QString("/success_%1_attempt_%2_sim_%3.png")
-                                   .arg(sessionTimestamp)
-                                   .arg(attemptCount)
-                                   .arg(QString::number(result.similarity, 'f', 4));
+                                       .arg(sessionTimestamp)
+                                       .arg(attemptCount)
+                                       .arg(QString::number(result.similarity, 'f', 4));
             if (currentScreenshot.save(debugImagePath)) {
                 qDebug() << QString("成功识别截图已保存: %1").arg(debugImagePath);
             }
+#endif
             
             qDebug() << QString("动态识别成功! 位置=(%1,%2), 相似度=%3, 总耗时=%4ms, 尝试次数=%5")
                        .arg(result.clickPosition.x())
